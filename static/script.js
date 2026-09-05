@@ -232,8 +232,12 @@ const rtcConfig = {
 };
 
 function getSenderForKind(pc, kind) {
-  const transceiver = pc.getTransceivers().find(t => t.receiver?.track?.kind === kind || t.sender?.track?.kind === kind);
+  const transceiver = pc.getTransceivers().find(t => t.sender?.track?.kind === kind || t.receiver?.track?.kind === kind);
   return transceiver?.sender || pc.getSenders().find(sender => sender.track?.kind === kind) || null;
+}
+
+function getTransceiverForKind(pc, kind) {
+  return pc.getTransceivers().find(t => t.sender?.track?.kind === kind || t.receiver?.track?.kind === kind) || null;
 }
 
 function makeMeetingClientId() { return window.crypto?.randomUUID ? crypto.randomUUID() : "client-" + Date.now() + "-" + Math.random().toString(16).slice(2); }
@@ -251,17 +255,10 @@ function currentVideoTrack() { return screenSharing ? (screenStream?.getVideoTra
 function addLocalTracks(pc) {
   const videoTrack = currentVideoTrack();
   const audioTrack = localMediaStream?.getAudioTracks?.()[0] || null;
-  const senders = pc.getSenders();
-  const videoSender = senders.find(s => s.track?.kind === "video" || (!s.track && s.kind === "video"));
-  const audioSender = senders.find(s => s.track?.kind === "audio" || (!s.track && s.kind === "audio"));
-  if (videoTrack && !senders.some(s => s.track?.id === videoTrack.id)) {
-    if (videoSender) videoSender.replaceTrack(videoTrack).catch(() => {});
-    else pc.addTrack(videoTrack, screenSharing ? screenStream : localMediaStream);
-  }
-  if (audioTrack && !senders.some(s => s.track?.id === audioTrack.id)) {
-    if (audioSender) audioSender.replaceTrack(audioTrack).catch(() => {});
-    else pc.addTrack(audioTrack, localMediaStream);
-  }
+  const videoSender = getSenderForKind(pc, "video");
+  const audioSender = getSenderForKind(pc, "audio");
+  if (videoSender && videoTrack && videoSender.track !== videoTrack) videoSender.replaceTrack(videoTrack).catch(e => console.warn("Video replaceTrack failed", e));
+  if (audioSender && audioTrack && audioSender.track !== audioTrack) audioSender.replaceTrack(audioTrack).catch(e => console.warn("Audio replaceTrack failed", e));
 }
 
 function ensureRemoteCard(peerId, name) {
@@ -269,14 +266,47 @@ function ensureRemoteCard(peerId, name) {
   if (card) { const label = card.querySelector(".video-name"); if (label && name) label.textContent = name; return card; }
   const grid = $("videoGrid"); if (!grid) return null;
   card = document.createElement("div"); card.className = "video-card remote-card"; card.id = "remote-card-" + peerId;
-  card.innerHTML = `<video id="remote-video-${peerId}" autoplay playsinline></video><div class="video-empty">Connecting video…</div><span class="video-name"></span>`;
+  card.innerHTML = `<video id="remote-video-${peerId}" autoplay playsinline muted></video><audio id="remote-audio-${peerId}" autoplay playsinline></audio><div class="video-empty">Connecting video…</div><span class="video-name"></span>`;
   card.querySelector(".video-name").textContent = name || "Participant";
   grid.appendChild(card); return card;
 }
 function removeRemoteCard(peerId) { $("remote-card-" + peerId)?.remove(); }
 
-// Perfect-negotiation WebRTC setup. This avoids offer collisions and, importantly,
-// also renegotiates when the non-offerer turns their camera on or starts screen sharing.
+function attachRemoteTrack(state, track, streams) {
+  const peerId = state.peerId;
+  const card = ensureRemoteCard(peerId, state.name);
+  if (!card) return;
+  if (!state.remoteStream) state.remoteStream = streams?.[0] || new MediaStream();
+  if (!state.remoteStream.getTracks().some(t => t.id === track.id)) state.remoteStream.addTrack(track);
+
+  const video = $("remote-video-" + peerId);
+  const audio = $("remote-audio-" + peerId);
+  if (video && track.kind === "video") {
+    video.srcObject = state.remoteStream;
+    video.muted = true;
+    video.autoplay = true;
+    video.playsInline = true;
+    video.play().catch(() => {});
+    card.classList.add("has-video");
+  }
+  if (audio && track.kind === "audio") {
+    audio.srcObject = state.remoteStream;
+    audio.autoplay = true;
+    audio.volume = 1;
+    audio.muted = false;
+    audio.play().then(() => {
+      $("enableAudioButton")?.classList.add("hidden");
+    }).catch(() => {
+      $("enableAudioButton")?.classList.remove("hidden");
+    });
+  }
+  track.onunmute = () => {
+    if (track.kind === "video") video?.play().catch(() => {});
+    if (track.kind === "audio") audio?.play().catch(() => $("enableAudioButton")?.classList.remove("hidden"));
+  };
+  setMeetingConnectionStatus(`${state.name} ${track.kind} connected`);
+}
+
 function createPeer(peer) {
   if (!peer?.client_id || peer.client_id === meetingClientId) return null;
   const existing = meetingPeers.get(peer.client_id);
@@ -287,49 +317,31 @@ function createPeer(peer) {
   }
 
   const pc = new RTCPeerConnection(rtcConfig);
-  try { pc.addTransceiver("audio", { direction: "sendrecv" }); } catch {}
-  try { pc.addTransceiver("video", { direction: "sendrecv" }); } catch {}
   const state = {
     pc,
+    peerId: peer.client_id,
     name: peer.name || "Participant",
     pendingCandidates: [],
     makingOffer: false,
     ignoreOffer: false,
     isSettingRemoteAnswerPending: false,
     polite: String(meetingClientId) > String(peer.client_id),
+    remoteStream: null,
     connectedAt: 0
   };
   meetingPeers.set(peer.client_id, state);
   ensureRemoteCard(peer.client_id, state.name);
   updateParticipantUi();
-  addLocalTracks(pc);
 
   pc.onicecandidate = event => {
     if (event.candidate && meetingSocket?.readyState === WebSocket.OPEN) {
       meetingSocket.send(JSON.stringify({ type: "ice", to: peer.client_id, candidate: event.candidate }));
     }
   };
-  pc.onicecandidateerror = event => {
-    console.warn("ICE candidate error", event.errorCode, event.errorText || "");
-  };
-  pc.ontrack = event => {
-    const video = $("remote-video-" + peer.client_id);
-    const card = $("remote-card-" + peer.client_id);
-    if (!video) return;
-    if (event.streams?.[0]) video.srcObject = event.streams[0];
-    else if (!video.srcObject) video.srcObject = new MediaStream([event.track]);
-    video.autoplay = true;
-    video.playsInline = true;
-    video.muted = false;
-    video.volume = 1;
-    card?.classList.add("has-video");
-    video.play().then(() => {
-      $("enableAudioButton")?.classList.add("hidden");
-    }).catch(() => {
-      $("enableAudioButton")?.classList.remove("hidden");
-    });
-    setMeetingConnectionStatus(`${state.name} audio/video connected`);
-  };
+  pc.onicecandidateerror = event => console.warn("ICE candidate error", event.errorCode, event.errorText || "");
+
+  pc.ontrack = event => attachRemoteTrack(state, event.track, event.streams);
+
   pc.onconnectionstatechange = () => {
     const cs = pc.connectionState;
     if (cs === "connected") {
@@ -337,7 +349,7 @@ function createPeer(peer) {
       ensureRemoteCard(peer.client_id, state.name)?.classList.add("has-video");
       setMeetingConnectionStatus(`${state.name} connected`);
     } else if (cs === "connecting") {
-      setMeetingConnectionStatus(`Connecting video to ${state.name}…`);
+      setMeetingConnectionStatus(`Connecting to ${state.name}…`);
     } else if (["failed", "closed"].includes(cs)) {
       try { pc.close(); } catch {}
       meetingPeers.delete(peer.client_id);
@@ -348,12 +360,16 @@ function createPeer(peer) {
   };
   pc.oniceconnectionstatechange = () => {
     if (pc.iceConnectionState === "failed") {
-      setMeetingConnectionStatus(`Video connection to ${state.name} failed. Check both browsers allow WebRTC.`);
+      setMeetingConnectionStatus(`Connection to ${state.name} failed. Trying again…`);
       try { pc.restartIce(); } catch {}
     }
   };
+
+  // Install negotiation handlers BEFORE creating transceivers so the initial
+  // negotiationneeded event cannot be missed.
   pc.onnegotiationneeded = async () => {
     try {
+      if (pc.signalingState === "closed") return;
       state.makingOffer = true;
       await pc.setLocalDescription();
       if (meetingSocket?.readyState === WebSocket.OPEN && pc.localDescription) {
@@ -365,18 +381,31 @@ function createPeer(peer) {
       state.makingOffer = false;
     }
   };
+
+  try { pc.addTransceiver("audio", { direction: "sendrecv" }); } catch (e) { console.warn("Audio transceiver failed", e); }
+  try { pc.addTransceiver("video", { direction: "sendrecv" }); } catch (e) { console.warn("Video transceiver failed", e); }
+
+  // Prefer a small audio jitter-buffer target when the browser supports it.
+  // This reduces unnecessary playout buffering while retaining WebRTC's
+  // adaptive behavior on unstable networks.
+  const audioReceiver = pc.getReceivers().find(r => r.track?.kind === "audio");
+  if (audioReceiver && "jitterBufferTarget" in audioReceiver) {
+    try { audioReceiver.jitterBufferTarget = 40; } catch {}
+  }
+
+  addLocalTracks(pc);
   return pc;
 }
 
 async function handleMeetingSignal(message) {
   if (message.type === "peers") {
     for (const peer of message.peers || []) createPeer(peer);
-    setMeetingConnectionStatus((message.peers || []).length ? "Negotiating participant video…" : "Connected. Waiting for participants…");
+    setMeetingConnectionStatus((message.peers || []).length ? "Connecting participant audio/video…" : "Connected. Waiting for participants…");
     return;
   }
   if (message.type === "peer-joined") {
     createPeer(message.peer);
-    setMeetingConnectionStatus(`${message.peer?.name || "A participant"} joined. Connecting video…`);
+    setMeetingConnectionStatus(`${message.peer?.name || "A participant"} joined. Connecting…`);
     return;
   }
   if (message.type === "peer-left") {
@@ -395,18 +424,14 @@ async function handleMeetingSignal(message) {
       const offerCollision = !readyForOffer;
       state.ignoreOffer = !state.polite && offerCollision;
       if (state.ignoreOffer) return;
-      if (offerCollision && state.polite && pc.signalingState !== "stable") {
-        await pc.setLocalDescription({ type: "rollback" });
-      }
+      if (offerCollision && state.polite && pc.signalingState !== "stable") await pc.setLocalDescription({ type: "rollback" });
       await pc.setRemoteDescription(new RTCSessionDescription(message.sdp));
       for (const candidate of state.pendingCandidates.splice(0)) await pc.addIceCandidate(candidate);
       if (message.sdp.type === "offer") {
         await pc.setLocalDescription();
         if (meetingSocket?.readyState === WebSocket.OPEN) meetingSocket.send(JSON.stringify({ type: "answer", to: message.from, sdp: pc.localDescription }));
       }
-    } catch (e) {
-      console.warn("Offer handling failed", e);
-    }
+    } catch (e) { console.warn("Offer handling failed", e); }
     return;
   }
   if (message.type === "answer") {
@@ -415,11 +440,9 @@ async function handleMeetingSignal(message) {
     try {
       state.isSettingRemoteAnswerPending = true;
       await state.pc.setRemoteDescription(new RTCSessionDescription(message.sdp));
-    } catch (e) {
-      console.warn("Answer handling failed", e);
-    } finally {
-      state.isSettingRemoteAnswerPending = false;
-    }
+      for (const candidate of state.pendingCandidates.splice(0)) await state.pc.addIceCandidate(candidate);
+    } catch (e) { console.warn("Answer handling failed", e); }
+    finally { state.isSettingRemoteAnswerPending = false; }
     return;
   }
   if (message.type === "ice") {
@@ -430,9 +453,7 @@ async function handleMeetingSignal(message) {
       const candidate = new RTCIceCandidate(message.candidate);
       if (pc.remoteDescription) await pc.addIceCandidate(candidate);
       else state.pendingCandidates.push(candidate);
-    } catch (e) {
-      if (!state.ignoreOffer) console.warn("ICE candidate failed", e);
-    }
+    } catch (e) { if (!state.ignoreOffer) console.warn("ICE candidate failed", e); }
   }
 }
 
@@ -441,9 +462,7 @@ function connectMeetingSocket() {
   meetingClientId = makeMeetingClientId();
   setMeetingConnectionStatus("Connecting participants…");
   meetingSocket = new WebSocket(socketUrl(`/ws/meeting/${selectedMeeting.id}`));
-  meetingSocket.onopen = () => {
-    meetingSocket.send(JSON.stringify({ type: "join", client_id: meetingClientId, name: currentUser.name || "Participant", user_id: currentUser.id }));
-  };
+  meetingSocket.onopen = () => meetingSocket.send(JSON.stringify({ type: "join", client_id: meetingClientId, name: currentUser.name || "Participant", user_id: currentUser.id }));
   meetingSocket.onmessage = event => { try { handleMeetingSignal(JSON.parse(event.data)); } catch (e) { console.warn(e); } };
   meetingSocket.onerror = () => setMeetingConnectionStatus("Participant connection error. Check WebSocket support.");
   meetingSocket.onclose = () => { if ($("meetingRoomPage")) setMeetingConnectionStatus("Disconnected from participant room"); };
@@ -456,25 +475,13 @@ function disconnectMeetingSocket() {
   updateParticipantUi();
 }
 
-async function renegotiateAllPeers() {
-  // With perfect negotiation, adding/replacing tracks triggers negotiationneeded.
-  // This helper only nudges peers whose browser did not emit it automatically.
-  for (const [peerId, state] of meetingPeers) {
-    try {
-      if (state.pc.signalingState === "stable") {
-        await state.pc.setLocalDescription();
-        if (meetingSocket?.readyState === WebSocket.OPEN && state.pc.localDescription) {
-          meetingSocket.send(JSON.stringify({ type: "offer", to: peerId, sdp: state.pc.localDescription }));
-        }
-      }
-    } catch (e) { console.warn("Renegotiation failed", e); }
-  }
-}
-
 async function startCamera() {
   try {
     if (localMediaStream) return showToast("Camera is already on.");
-    localMediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    localMediaStream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 30 } },
+      audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: true, channelCount: 1, latency: { ideal: 0.02 } }
+    });
     cameraStream = localMediaStream;
     if (!screenSharing) {
       const video = $("localVideo");
@@ -483,9 +490,11 @@ async function startCamera() {
     $("cameraButton") && ($("cameraButton").textContent = "📹 Camera On");
     $("localVideoEmpty") && ($("localVideoEmpty").textContent = "Camera is off");
     for (const state of meetingPeers.values()) addLocalTracks(state.pc);
-    await renegotiateAllPeers();
     showToast("Camera and microphone are on");
-  } catch (e) { console.warn(e); showToast("Camera/microphone permission was denied or unavailable. Please allow access and try again."); }
+  } catch (e) {
+    console.warn(e);
+    showToast("Camera/microphone permission was denied or unavailable. Please allow access and try again.");
+  }
 }
 function stopCamera() {
   if (screenSharing) stopScreenShare();
@@ -499,62 +508,87 @@ function stopCamera() {
 }
 function toggleMeetingMicrophone() {
   if (!localMediaStream) return showToast("Start the camera first to enable the microphone.");
-  const tracks = localMediaStream.getAudioTracks(); if (!tracks.length) return;
+  const tracks = localMediaStream.getAudioTracks();
+  if (!tracks.length) return showToast("No microphone track is available.");
   meetingMicMuted = !meetingMicMuted;
-  tracks.forEach(track => track.enabled = !meetingMicMuted);
-  if ($("micButton")) $("micButton").textContent = meetingMicMuted ? "🔇 Unmute" : "🎙 Mute";
+  tracks.forEach(track => { track.enabled = !meetingMicMuted; });
+  $("micButton") && ($("micButton").textContent = meetingMicMuted ? "🔇 Unmute" : "🎙 Mute");
 }
+
+async function replaceVideoForPeer(state, track) {
+  const sender = getSenderForKind(state.pc, "video");
+  if (!sender) throw new Error("Video sender is not available");
+  await sender.replaceTrack(track || null);
+}
+
 async function toggleScreenShare() {
   if (screenSharing) return stopScreenShare();
   if (!navigator.mediaDevices?.getDisplayMedia) return showToast("Screen sharing is not supported by this browser.");
   try {
-    screenStream = await navigator.mediaDevices.getDisplayMedia({ video: { cursor: "always" }, audio: false });
+    screenStream = await navigator.mediaDevices.getDisplayMedia({
+      video: { cursor: "always", width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 15, max: 20 } },
+      audio: false
+    });
     const screenTrack = screenStream.getVideoTracks()[0];
     if (!screenTrack) throw new Error("No screen track was created.");
+    screenTrack.contentHint = "detail";
     screenSharing = true;
     screenTrack.onended = () => stopScreenShare();
+
     const localVideo = $("localVideo");
-    if (localVideo) { localVideo.srcObject = new MediaStream([screenTrack, ...(localMediaStream?.getAudioTracks?.() || [])]); $("localVideoCard")?.classList.add("has-video"); await localVideo.play().catch(() => {}); }
-    for (const state of meetingPeers.values()) {
-      const sender = getSenderForKind(state.pc, "video");
-      if (sender) await sender.replaceTrack(screenTrack);
-      else state.pc.addTrack(screenTrack, screenStream);
+    if (localVideo) {
+      localVideo.srcObject = new MediaStream([screenTrack, ...(localMediaStream?.getAudioTracks?.() || [])]);
+      $("localVideoCard")?.classList.add("has-video");
+      await localVideo.play().catch(() => {});
     }
-    await renegotiateAllPeers();
+
+    // replaceTrack is deliberately used without renegotiation. It is the
+    // WebRTC mechanism designed for switching camera/screen video sources and
+    // avoids interrupting the live audio connection.
+    for (const state of meetingPeers.values()) {
+      try {
+        await replaceVideoForPeer(state, screenTrack);
+      } catch (e) {
+        console.warn("Screen replaceTrack failed; attempting renegotiation", e);
+        const transceiver = getTransceiverForKind(state.pc, "video");
+        if (!transceiver) continue;
+        await state.pc.getSenders().find(s => s === transceiver.sender)?.replaceTrack(screenTrack);
+      }
+    }
     $("screenShareButton") && ($("screenShareButton").textContent = "⏹ Stop Sharing");
     showToast("You are sharing your screen");
   } catch (e) {
+    console.warn(e);
     screenStream?.getTracks().forEach(t => t.stop()); screenStream = null; screenSharing = false;
     if (e?.name !== "NotAllowedError") showToast("Screen sharing could not start.");
   }
 }
-function stopScreenShare() {
+async function stopScreenShare() {
   if (!screenSharing && !screenStream) return;
   const cameraTrack = localMediaStream?.getVideoTracks?.()[0] || null;
   screenStream?.getTracks().forEach(track => track.stop()); screenStream = null; screenSharing = false;
   const localVideo = $("localVideo");
-  if (localVideo) { localVideo.srcObject = localMediaStream || null; if (localMediaStream) $("localVideoCard")?.classList.add("has-video"); else $("localVideoCard")?.classList.remove("has-video"); localVideo.play().catch(() => {}); }
-  for (const state of meetingPeers.values()) {
-    const sender = getSenderForKind(state.pc, "video");
-    if (sender) sender.replaceTrack(cameraTrack).catch(() => {});
-    else if (cameraTrack) state.pc.addTrack(cameraTrack, localMediaStream);
+  if (localVideo) {
+    localVideo.srcObject = localMediaStream || null;
+    if (localMediaStream) $("localVideoCard")?.classList.add("has-video"); else $("localVideoCard")?.classList.remove("has-video");
+    localVideo.play().catch(() => {});
   }
-  renegotiateAllPeers();
+  for (const state of meetingPeers.values()) {
+    try { await replaceVideoForPeer(state, cameraTrack); } catch (e) { console.warn("Camera restore failed", e); }
+  }
   $("screenShareButton") && ($("screenShareButton").textContent = "🖥️ Share Screen");
   showToast(cameraTrack ? "Screen sharing stopped. Camera restored." : "Screen sharing stopped.");
 }
 async function enableRemoteAudio() {
-  const videos = document.querySelectorAll("#videoGrid video:not(#localVideo)");
+  const audios = document.querySelectorAll("#videoGrid audio");
   let played = false;
-  for (const video of videos) {
-    try { video.muted = false; video.volume = 1; await video.play(); played = true; } catch {}
+  for (const audio of audios) {
+    try { audio.muted = false; audio.volume = 1; await audio.play(); played = true; } catch {}
   }
   if (played) {
     $("enableAudioButton")?.classList.add("hidden");
     showToast("Remote audio enabled");
-  } else {
-    showToast("No remote audio is available yet. Ask the other participant to start their microphone.");
-  }
+  } else showToast("No remote audio is available yet. Ask the other participant to start their microphone.");
 }
 
 async function toggleMeetingFullscreen() {
