@@ -1,0 +1,37 @@
+{% extends "base.html" %}{% block content %}
+<section id="meetingRoomPage" data-meeting-id="{{ meeting_id or '' }}">
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">LIVE VIDEO MEETING</p>
+      <h1 id="roomTitle">Meeting Room</h1>
+      <p id="roomCode" class="muted"></p>
+      <p id="meetingConnectionStatus" class="muted">Connecting participants…</p>
+    </div>
+    <a class="button-link secondary-link" href="/meetings">← All Meetings</a>
+  </div>
+
+  <section class="panel meeting-stage">
+    <div class="stage-toolbar">
+      <div><strong id="participantCount">1 participant</strong><span class="muted"> · Mesh video room</span></div>
+      <div id="participantNames" class="muted"></div>
+    </div>
+    <div id="videoGrid" class="video-grid multi-video-grid">
+      <div class="video-card local-card" id="localVideoCard">
+        <video id="localVideo" autoplay muted playsinline></video>
+        <div class="video-empty" id="localVideoEmpty">Camera is off</div>
+        <span id="localName">You</span>
+      </div>
+    </div>
+    <div class="room-controls meeting-controls">
+      <button id="cameraButton" onclick="startCamera()">📹 Start Camera</button>
+      <button class="secondary" onclick="stopCamera()">⏹ Stop Camera</button>
+      <button id="micButton" class="secondary" onclick="toggleMeetingMicrophone()">🎙 Mute</button>
+    </div>
+    <p class="muted small-note">Each participant must open this meeting using the same meeting code and allow camera/microphone access. Their video appears automatically.</p>
+  </section>
+
+  <section class="panel"><h2>Live Voice Transcript</h2><p class="muted">Speak naturally. Review the transcript before creating tasks.</p><div class="room-controls"><button id="voiceButton" onclick="toggleVoiceRecognition()">🎤 Start Listening</button><button class="secondary" onclick="saveTranscript()">Save Transcript</button><button onclick="analyzeTranscript()">🤖 Detect Task Suggestions</button></div><p id="voiceStatus" class="muted"></p><textarea id="transcript" placeholder="Live speech appears here. You can also edit or paste text."></textarea></section>
+  <section id="detectedTasks" class="panel hidden"><h2>AI Task Suggestions — Review Before Assignment</h2><p class="muted">Nothing is assigned automatically. Correct the task, person or deadline, then assign.</p><div id="detectedTaskList"></div></section>
+  <section class="panel"><h2>Assign a Task Manually</h2><div class="task-form"><input id="taskTitle" placeholder="Task title"><select id="assignedUser"></select><input id="taskDeadline" placeholder="Due date (Friday or 2026-09-10)"><button onclick="createTask()">Assign Task</button></div></section>
+</section>
+{% endblock %}
