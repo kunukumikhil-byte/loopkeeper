@@ -128,173 +128,6 @@ async function openMeetingPage() {
 }
 
 async function startCamera() { try { stopCamera(); cameraStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true }); $("localVideo").srcObject = cameraStream; } catch { showToast("Camera/microphone permission was denied or unavailable."); } }
-function stopCamera() { if (cameraStream) { cameraStream.getTracks().forEach(t => t.stop()); cameraStream = null; } if ($("localVideo")) $("localVideo").srcObject = null; }
-function setupRecognition() {
-  if (recognition) return true;
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SpeechRecognition) { showToast("Live speech recognition is not supported. Try Chrome or Edge."); return false; }
-  recognition = new SpeechRecognition(); recognition.continuous = true; recognition.interimResults = true; recognition.lang = "en-US";
-  recognition.onresult = e => {
-    let interim = "";
-    for (let i = e.resultIndex; i < e.results.length; i++) {
-      const text = e.results[i][0].transcript.trim(); if (!text) continue;
-      if (e.results[i].isFinal) committedTranscript = (committedTranscript + " " + text).replace(/\s+/g, " ").trim();
-      else interim += (interim ? " " : "") + text;
-    }
-    $("transcript").value = (committedTranscript + (interim ? " " + interim : "")).trim();
-  };
-  recognition.onerror = e => { if (["aborted", "no-speech"].includes(e.error)) return; voiceListening = false; if ($("voiceButton")) $("voiceButton").textContent = "🎤 Start Listening"; if ($("voiceStatus")) $("voiceStatus").textContent = "Voice error: " + e.error + ". Check microphone permission."; };
-  recognition.onend = () => { if (voiceListening) { try { recognition.start(); } catch {} } };
-  return true;
-}
-function toggleVoiceRecognition() {
-  if (voiceListening) return stopVoiceRecognition(); if (!setupRecognition()) return;
-  committedTranscript = ($("transcript").value || "").trim(); voiceListening = true; $("voiceButton").textContent = "⏹ Stop Listening"; $("voiceStatus").textContent = "Listening… speak naturally.";
-  try { recognition.start(); } catch { showToast("Voice recognition could not start. Please try again."); }
-}
-function stopVoiceRecognition() { voiceListening = false; if (recognition) try { recognition.stop(); } catch {} if ($("voiceButton")) $("voiceButton").textContent = "🎤 Start Listening"; if ($("voiceStatus")) $("voiceStatus").textContent = "Voice detection stopped."; if ($("transcript")) committedTranscript = $("transcript").value.trim(); }
-async function saveTranscript() { if (!selectedMeeting) return; try { await api(`/api/meetings/${selectedMeeting.id}/transcript?` + query({ transcript: $("transcript").value }), { method: "PUT", headers: headers() }); selectedMeeting.notes = $("transcript").value; showToast("Transcript saved"); } catch (e) { showToast(e.message); } }
-async function analyzeTranscript() { if (!selectedMeeting) return showToast("Open a meeting first"); if (!$("transcript").value.trim()) return showToast("Add some speech text first"); try { const d = await api(`/api/meetings/${selectedMeeting.id}/extract-tasks?` + query({ transcript: $("transcript").value }), { method: "POST", headers: headers() }); renderDetectedTasks(d.tasks); showToast(d.tasks.length ? "Task suggestions found. Review them before assigning." : "No clear assignments found. You can still assign manually."); } catch (e) { showToast(e.message); } }
-function renderDetectedTasks(tasks) {
-  const section = $("detectedTasks"), list = $("detectedTaskList"); section.classList.remove("hidden");
-  if (!tasks.length) { list.innerHTML = "<p class='muted'>No clear task assignments detected.</p>"; return; }
-  const options = selectedMeeting.participants.map(u => `<option value="${u.id}">${escapeHtml(u.name)}</option>`).join("");
-  list.innerHTML = tasks.map((t, i) => `<div class="task-card"><input id="ai-title-${i}" value="${escapeAttr(t.title)}"><select id="ai-user-${i}">${options}</select><input id="ai-deadline-${i}" value="${escapeAttr(t.deadline || "")}" placeholder="Due date"><p class="meta">Detected from: ${escapeHtml(t.source)}</p><button onclick="assignDetectedTask(${i})">Review & Assign</button></div>`).join("");
-  tasks.forEach((t, i) => { const s = $("ai-user-" + i); if (s) s.value = String(t.assigned_to_id); });
-}
-async function assignDetectedTask(i) { $("taskTitle").value = $("ai-title-" + i).value; $("assignedUser").value = $("ai-user-" + i).value; $("taskDeadline").value = $("ai-deadline-" + i).value; await createTask(); }
-async function createTask() { if (!selectedMeeting) return showToast("Open a meeting first"); try { await api("/api/tasks/?" + query({ title: $("taskTitle").value, assigned_to_id: $("assignedUser").value, deadline: $("taskDeadline").value, meeting_id: selectedMeeting.id }), { method: "POST", headers: headers() }); $("taskTitle").value = ""; $("taskDeadline").value = ""; showToast("Task assigned successfully"); } catch (e) { showToast(e.message); } }
-
-function taskHtml(t, mine) {
-  const person = mine ? `Assigned by: <strong>${escapeHtml(t.assigned_by.name)}</strong>` : `Assigned to: <strong>${escapeHtml(t.assigned_to.name)}</strong>`;
-  const submittedFile = t.has_file ? `<p class="meta"><button class="secondary small-button" onclick="downloadSubmission(${t.id}, '${escapeAttr(t.submission_filename || 'submission')}')">📎 Download: ${escapeHtml(t.submission_filename || 'submission')}</button></p>` : "";
-  const submit = mine && t.status !== "Completed" && t.status !== "Submitted" ? `<textarea id="submission-${t.id}" placeholder="Add a note, link, explanation, or result (optional if you attach a file)"></textarea><input id="submission-file-${t.id}" type="file"><p class="meta">You can submit any file type up to 25 MB.</p><button onclick="submitTask(${t.id})">Submit Work</button>` : "";
-  const review = !mine && t.status === "Submitted" ? `<textarea id="review-${t.id}" placeholder="Optional approval note or rejection reason"></textarea><button class="success" onclick="approveTask(${t.id})">Approve & Complete</button><button class="danger" onclick="rejectTask(${t.id})">Reject & Resubmit</button>` : "";
-  const wait = mine && t.status === "Submitted" ? `<p class="meta"><strong>Waiting for approval from ${escapeHtml(t.assigned_by.name)}.</strong></p>` : "";
-  return `<div class="task-card"><div class="task-top"><div><h3>${escapeHtml(t.title)}</h3><p class="meta">${person}</p><p class="meta">Meeting: ${escapeHtml(t.meeting_title)}</p><p class="meta">Due date: <strong>${escapeHtml(t.deadline || "No deadline")}</strong></p></div><span class="badge status-${t.status}">${escapeHtml(t.status)}</span></div>${t.submission ? `<div class="submission-box"><strong>${mine ? "Your submission" : "Submitted work"}:</strong><br>${escapeHtml(t.submission)}</div>` : ""}${submittedFile}${t.approval_note ? `<div class="submission-box"><strong>Reviewer note:</strong><br>${escapeHtml(t.approval_note)}</div>` : ""}${submit}${review}${wait}${t.status === "Completed" ? "<p><strong>Approved and completed ✓</strong></p>" : ""}</div>`;
-}
-async function loadMyTasks() { const box = $("myTasks"); if (!box) return; try { const tasks = await api("/api/tasks/mine", { headers: headers() }); box.innerHTML = !tasks.length ? "<p class='muted'>No tasks assigned to you.</p>" : tasks.map(t => taskHtml(t, true)).join(""); } catch (e) { showToast(e.message); } }
-async function loadAssignedTasks() { const box = $("assignedTasks"); if (!box) return; try { const tasks = await api("/api/tasks/assigned", { headers: headers() }); box.innerHTML = !tasks.length ? "<p class='muted'>You have not assigned any tasks yet.</p>" : tasks.map(t => taskHtml(t, false)).join(""); } catch (e) { showToast(e.message); } }
-async function submitTask(id) {
-  try {
-    const form = new FormData();
-    const note = $("submission-" + id)?.value || "";
-    const file = $("submission-file-" + id)?.files?.[0];
-    form.append("submission", note);
-    if (file) form.append("file", file);
-    await api(`/api/tasks/${id}/submit`, { method: "POST", headers: headers(), body: form });
-    showToast("Work submitted. Waiting for approval."); loadMyTasks();
-  } catch (e) { showToast(e.message); }
-}
-async function downloadSubmission(id, name) {
-  try {
-    const response = await fetch(`/api/tasks/${id}/download`, { headers: headers() });
-    if (!response.ok) { const data = await response.json().catch(() => ({})); throw new Error(data.detail || "Download failed"); }
-    const blob = await response.blob(); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = name; a.click(); URL.revokeObjectURL(url);
-  } catch (e) { showToast(e.message); }
-}
-async function approveTask(id) { try { const note = $("review-" + id).value; await api(`/api/tasks/${id}/approve?` + query({ note }), { method: "POST", headers: headers() }); showToast("Task approved and marked Completed"); loadAssignedTasks(); } catch (e) { showToast(e.message); } }
-async function rejectTask(id) { try { const reason = $("review-" + id).value || "Please improve and submit again."; await api(`/api/tasks/${id}/reject?` + query({ reason }), { method: "POST", headers: headers() }); showToast("Task returned for resubmission"); loadAssignedTasks(); } catch (e) { showToast(e.message); } }
-
-async function boot() {
-  const path = location.pathname;
-  if (path === "/login") { if (currentUser) { location.href = "/dashboard"; return; } await setupGoogleLogin(); return; }
-  if (!requireUser()) return;
-  renderUserArea();
-  document.querySelectorAll(".nav-links a").forEach(a => { if (a.getAttribute("href") === path) a.classList.add("active"); });
-  if (path === "/dashboard") loadStats().catch(e => showToast(e.message));
-  if (path === "/meetings") loadMeetings();
-  if (path === "/meeting-room") openMeetingPage();
-  if (path === "/my-tasks") loadMyTasks();
-  if (path === "/assigned-tasks") loadAssignedTasks();
-}
-document.addEventListener("DOMContentLoaded", boot);
-
-// ---------------------------------------------------------------------------
-// Multi-participant WebRTC meeting (Zoom-style gallery for small/medium rooms)
-// Uses deterministic negotiation to avoid offer collisions when cameras start.
-// ---------------------------------------------------------------------------
-let meetingSocket = null;
-let meetingPeers = new Map();
-let meetingClientId = null;
-let localMediaStream = null;
-let screenStream = null;
-let screenSharing = false;
-let meetingMicMuted = false;
-const rtcConfig = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
-
-function makeMeetingClientId() { return window.crypto?.randomUUID ? crypto.randomUUID() : "client-" + Date.now() + "-" + Math.random().toString(16).slice(2); }
-function socketUrl(path) { const scheme = location.protocol === "https:" ? "wss" : "ws"; return `${scheme}://${location.host}${path}`; }
-function updateParticipantUi() { const peers = Array.from(meetingPeers.values()).map(p => p.name).filter(Boolean); const total = 1 + peers.length; if ($("participantCount")) $("participantCount").textContent = `${total} participant${total === 1 ? "" : "s"}`; if ($("participantNames")) $("participantNames").textContent = peers.length ? `Connected: ${peers.join(", ")}` : "Waiting for others to join"; if ($("localName")) $("localName").textContent = currentUser?.name || "You"; }
-function setMeetingConnectionStatus(text) { if ($("meetingConnectionStatus")) $("meetingConnectionStatus").textContent = text; }
-function currentVideoTrack() {
-  return screenSharing ? (screenStream?.getVideoTracks?.()[0] || null) : (localMediaStream?.getVideoTracks?.()[0] || null);
-}
-function addLocalTracks(pc) {
-  const videoTrack = currentVideoTrack();
-  const audioTrack = localMediaStream?.getAudioTracks?.()[0] || null;
-  const senders = pc.getSenders();
-  const videoSender = senders.find(s => s.track?.kind === "video" || (!s.track && s.kind === "video"));
-  const audioSender = senders.find(s => s.track?.kind === "audio" || (!s.track && s.kind === "audio"));
-  if (videoTrack && !senders.some(s => s.track?.id === videoTrack.id)) {
-    if (videoSender) videoSender.replaceTrack(videoTrack);
-    else pc.addTrack(videoTrack, screenSharing ? screenStream : localMediaStream);
-  }
-  if (audioTrack && !senders.some(s => s.track?.id === audioTrack.id)) {
-    if (audioSender) audioSender.replaceTrack(audioTrack);
-    else pc.addTrack(audioTrack, localMediaStream);
-  }
-}
-function ensureRemoteCard(peerId, name) {
-  let card = $("remote-card-" + peerId);
-  if (card) { const label = card.querySelector(".video-name"); if (label && name) label.textContent = name; return card; }
-  const grid = $("videoGrid"); if (!grid) return null;
-  card = document.createElement("div"); card.className = "video-card remote-card"; card.id = "remote-card-" + peerId;
-  card.innerHTML = `<video id="remote-video-${peerId}" autoplay playsinline></video><div class="video-empty">Connecting video…</div><span class="video-name"></span>`;
-  card.querySelector(".video-name").textContent = name || "Participant";
-  grid.appendChild(card); return card;
-}
-function removeRemoteCard(peerId) { $("remote-card-" + peerId)?.remove(); }
-function iAmOfferer(peerId) { return String(meetingClientId) < String(peerId); }
-
-async function createPeer(peer) {
-  if (!peer?.client_id || peer.client_id === meetingClientId) return null;
-  if (meetingPeers.has(peer.client_id)) { const state = meetingPeers.get(peer.client_id); if (peer.name) { state.name = peer.name; ensureRemoteCard(peer.client_id, peer.name); } updateParticipantUi(); return state.pc; }
-  const pc = new RTCPeerConnection(rtcConfig);
-  const state = { pc, name: peer.name || "Participant", pendingCandidates: [], makingOffer: false, offerInFlight: false };
-  meetingPeers.set(peer.client_id, state); ensureRemoteCard(peer.client_id, state.name); updateParticipantUi(); addLocalTracks(pc);
-  pc.onicecandidate = event => { if (event.candidate && meetingSocket?.readyState === WebSocket.OPEN) meetingSocket.send(JSON.stringify({ type: "ice", to: peer.client_id, candidate: event.candidate })); };
-  pc.ontrack = event => { const video = $("remote-video-" + peer.client_id); const card = $("remote-card-" + peer.client_id); if (!video) return; video.srcObject = event.streams[0] || new MediaStream([event.track]); card?.classList.add("has-video"); video.play().catch(() => {}); };
-  pc.onnegotiationneeded = async () => { if (iAmOfferer(peer.client_id)) await sendOffer(peer.client_id); };
-  pc.onconnectionstatechange = () => { if (["failed", "closed"].includes(pc.connectionState)) { try { pc.close(); } catch {} meetingPeers.delete(peer.client_id); removeRemoteCard(peer.client_id); updateParticipantUi(); } };
-  return pc;
-}
-async function sendOffer(peerId) {
-  const state = meetingPeers.get(peerId); if (!state || !meetingSocket || meetingSocket.readyState !== WebSocket.OPEN || state.offerInFlight) return;
-  try { state.offerInFlight = true; addLocalTracks(state.pc); if (state.pc.signalingState !== "stable") return; state.makingOffer = true; const offer = await state.pc.createOffer(); await state.pc.setLocalDescription(offer); meetingSocket.send(JSON.stringify({ type: "offer", to: peerId, sdp: state.pc.localDescription })); } catch (e) { console.warn("Offer failed", e); } finally { state.makingOffer = false; state.offerInFlight = false; }
-}
-async function handleMeetingSignal(message) {
-  if (message.type === "peers") { for (const peer of message.peers || []) await createPeer(peer); for (const peer of message.peers || []) if (iAmOfferer(peer.client_id)) await sendOffer(peer.client_id); setMeetingConnectionStatus((message.peers || []).length ? "Connected to meeting room" : "Connected. Waiting for participants…"); return; }
-  if (message.type === "peer-joined") { await createPeer(message.peer); if (iAmOfferer(message.peer?.client_id)) await sendOffer(message.peer.client_id); setMeetingConnectionStatus(`${message.peer?.name || "A participant"} joined the room`); return; }
-  if (message.type === "peer-left") { const state = meetingPeers.get(message.client_id); if (state) { try { state.pc.close(); } catch {} meetingPeers.delete(message.client_id); } removeRemoteCard(message.client_id); updateParticipantUi(); return; }
-  if (message.type === "offer") { const pc = await createPeer({ client_id: message.from, name: meetingPeers.get(message.from)?.name || "Participant" }); const state = meetingPeers.get(message.from); if (!pc || !state) return; try { addLocalTracks(pc); if (pc.signalingState !== "stable") { await pc.setLocalDescription({ type: "rollback" }); } await pc.setRemoteDescription(new RTCSessionDescription(message.sdp)); for (const candidate of state.pendingCandidates.splice(0)) await pc.addIceCandidate(candidate); const answer = await pc.createAnswer(); await pc.setLocalDescription(answer); meetingSocket.send(JSON.stringify({ type: "answer", to: message.from, sdp: pc.localDescription })); } catch (e) { console.warn("Offer handling failed", e); } return; }
-  if (message.type === "answer") { const state = meetingPeers.get(message.from); if (!state) return; try { await state.pc.setRemoteDescription(new RTCSessionDescription(message.sdp)); } catch (e) { console.warn("Answer handling failed", e); } return; }
-  if (message.type === "ice") { const pc = await createPeer({ client_id: message.from, name: meetingPeers.get(message.from)?.name || "Participant" }); const state = meetingPeers.get(message.from); if (!pc || !state) return; try { const candidate = new RTCIceCandidate(message.candidate); if (pc.remoteDescription) await pc.addIceCandidate(candidate); else state.pendingCandidates.push(candidate); } catch (e) { console.warn("ICE candidate failed", e); } }
-}
-function connectMeetingSocket() { if (!selectedMeeting || !currentUser || meetingSocket?.readyState === WebSocket.OPEN) return; meetingClientId = makeMeetingClientId(); setMeetingConnectionStatus("Connecting participants…"); meetingSocket = new WebSocket(socketUrl(`/ws/meeting/${selectedMeeting.id}`)); meetingSocket.onopen = () => meetingSocket.send(JSON.stringify({ type: "join", client_id: meetingClientId, name: currentUser.name || "Participant", user_id: currentUser.id })); meetingSocket.onmessage = event => { try { handleMeetingSignal(JSON.parse(event.data)); } catch (e) { console.warn(e); } }; meetingSocket.onerror = () => setMeetingConnectionStatus("Participant connection error. Check the server supports WebSockets."); meetingSocket.onclose = () => { if ($("meetingRoomPage")) setMeetingConnectionStatus("Disconnected from participant room"); }; }
-function disconnectMeetingSocket() { try { meetingSocket?.close(); } catch {} meetingSocket = null; meetingPeers.forEach(state => { try { state.pc.close(); } catch {} }); meetingPeers.clear(); updateParticipantUi(); }
-async function startCamera() {
-  try {
-    if (localMediaStream) return showToast("Camera is already on.");
-    localMediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-    cameraStream = localMediaStream;
-    if (!screenSharing) { const video = $("localVideo"); if (video) { video.srcObject = localMediaStream; $("localVideoCard")?.classList.add("has-video"); await video.play().catch(() => {}); } }
-    $("cameraButton") && ($("cameraButton").textContent = "📹 Camera On");
-    $("localVideoEmpty") && ($("localVideoEmpty").textContent = "Camera is off");
-    for (const peerId of meetingPeers.keys()) { const state = meetingPeers.get(peerId); addLocalTracks(state.pc); if (iAmOfferer(peerId)) await sendOffer(peerId); }
-    showToast("Camera and microphone are on");
-  } catch (e) { showToast("Camera/microphone permission was denied or unavailable. Please allow access and try again."); }
-}
 function stopCamera() {
   if (screenSharing) stopScreenShare();
   if (localMediaStream) localMediaStream.getTracks().forEach(track => track.stop());
@@ -302,10 +135,22 @@ function stopCamera() {
   if ($("localVideo")) $("localVideo").srcObject = null;
   $("localVideoCard")?.classList.remove("has-video");
   $("cameraButton") && ($("cameraButton").textContent = "📹 Start Camera");
-  $("micButton") && ($("micButton").textContent = "🎙 Mute");
+  $("micButton") && ($("micButton").textContent = "🎙 Start Mic");
   meetingMicMuted = false;
+  for (const state of meetingPeers.values()) {
+    getSenderForKind(state.pc, "audio")?.replaceTrack(null).catch(() => {});
+    getSenderForKind(state.pc, "video")?.replaceTrack(null).catch(() => {});
+  }
+  renegotiateAllPeers();
 }
-function toggleMeetingMicrophone() { if (!localMediaStream) return showToast("Start the camera first to enable the microphone."); const tracks = localMediaStream.getAudioTracks(); if (!tracks.length) return; meetingMicMuted = !meetingMicMuted; tracks.forEach(track => track.enabled = !meetingMicMuted); if ($("micButton")) $("micButton").textContent = meetingMicMuted ? "🔇 Unmute" : "🎙 Mute"; }
+function toggleMeetingMicrophone() {
+  if (!localMediaStream) return showToast("Start the camera first to enable the microphone.");
+  const tracks = localMediaStream.getAudioTracks();
+  if (!tracks.length) return showToast("No microphone track is available.");
+  meetingMicMuted = !meetingMicMuted;
+  tracks.forEach(track => track.enabled = !meetingMicMuted);
+  $("micButton") && ($("micButton").textContent = meetingMicMuted ? "🔇 Unmute" : "🎙 Mute");
+}
 async function toggleScreenShare() {
   if (screenSharing) return stopScreenShare();
   if (!navigator.mediaDevices?.getDisplayMedia) return showToast("Screen sharing is not supported by this browser.");
@@ -317,14 +162,18 @@ async function toggleScreenShare() {
     screenTrack.onended = () => stopScreenShare();
     const localVideo = $("localVideo");
     if (localVideo) { localVideo.srcObject = new MediaStream([screenTrack, ...(localMediaStream?.getAudioTracks?.() || [])]); $("localVideoCard")?.classList.add("has-video"); await localVideo.play().catch(() => {}); }
-    for (const [peerId, state] of meetingPeers) {
-      const sender = state.pc.getSenders().find(s => s.track?.kind === "video");
-      if (sender) await sender.replaceTrack(screenTrack); else state.pc.addTrack(screenTrack, screenStream);
-      if (iAmOfferer(peerId)) await sendOffer(peerId);
+    for (const state of meetingPeers.values()) {
+      const sender = getSenderForKind(state.pc, "video");
+      if (sender) await sender.replaceTrack(screenTrack);
+      else state.pc.addTrack(screenTrack, screenStream);
     }
+    await renegotiateAllPeers();
     $("screenShareButton") && ($("screenShareButton").textContent = "⏹ Stop Sharing");
     showToast("You are sharing your screen");
-  } catch (e) { screenStream?.getTracks().forEach(t => t.stop()); screenStream = null; screenSharing = false; if (e?.name !== "NotAllowedError") showToast("Screen sharing could not start."); }
+  } catch (e) {
+    screenStream?.getTracks().forEach(t => t.stop()); screenStream = null; screenSharing = false;
+    if (e?.name !== "NotAllowedError") showToast("Screen sharing could not start.");
+  }
 }
 function stopScreenShare() {
   if (!screenSharing && !screenStream) return;
@@ -332,12 +181,12 @@ function stopScreenShare() {
   screenStream?.getTracks().forEach(track => track.stop()); screenStream = null; screenSharing = false;
   const localVideo = $("localVideo");
   if (localVideo) { localVideo.srcObject = localMediaStream || null; if (localMediaStream) $("localVideoCard")?.classList.add("has-video"); else $("localVideoCard")?.classList.remove("has-video"); localVideo.play().catch(() => {}); }
-  for (const [peerId, state] of meetingPeers) {
-    const sender = state.pc.getSenders().find(s => s.track?.kind === "video");
-    if (sender) sender.replaceTrack(cameraTrack);
+  for (const state of meetingPeers.values()) {
+    const sender = getSenderForKind(state.pc, "video");
+    if (sender) sender.replaceTrack(cameraTrack).catch(() => {});
     else if (cameraTrack) state.pc.addTrack(cameraTrack, localMediaStream);
-    if (iAmOfferer(peerId)) sendOffer(peerId);
   }
+  renegotiateAllPeers();
   $("screenShareButton") && ($("screenShareButton").textContent = "🖥️ Share Screen");
   showToast(cameraTrack ? "Screen sharing stopped. Camera restored." : "Screen sharing stopped.");
 }
@@ -348,6 +197,19 @@ function leaveMeeting() {
   selectedMeeting = null;
   location.href = "/meetings";
 }
-async function openMeetingPage() { const root = $("meetingRoomPage"); if (!root) return; const id = Number(root.dataset.meetingId || new URLSearchParams(location.search).get("meeting_id")); if (!id) { showToast("No meeting selected"); location.href = "/meetings"; return; } try { selectedMeeting = await api("/api/meetings/" + id, { headers: headers() }); $("roomTitle").textContent = selectedMeeting.title; $("roomCode").textContent = "Share this meeting code: " + selectedMeeting.code; $("transcript").value = selectedMeeting.notes || ""; $("assignedUser").innerHTML = selectedMeeting.participants.map(u => `<option value="${u.id}">${escapeHtml(u.name)}</option>`).join(""); updateParticipantUi(); connectMeetingSocket(); } catch (e) { showToast(e.message); setTimeout(() => location.href = "/meetings", 900); } }
-window.addEventListener("beforeunload", () => { disconnectMeetingSocket(); stopCamera(); });
 
+async function openMeetingPage() {
+  const root = $("meetingRoomPage"); if (!root) return;
+  const id = Number(root.dataset.meetingId || new URLSearchParams(location.search).get("meeting_id"));
+  if (!id) { showToast("No meeting selected"); location.href = "/meetings"; return; }
+  try {
+    selectedMeeting = await api("/api/meetings/" + id, { headers: headers() });
+    $("roomTitle").textContent = selectedMeeting.title;
+    $("roomCode").textContent = "Share this meeting code: " + selectedMeeting.code;
+    $("transcript").value = selectedMeeting.notes || "";
+    $("assignedUser").innerHTML = selectedMeeting.participants.map(u => `<option value="${u.id}">${escapeHtml(u.name)}</option>`).join("");
+    updateParticipantUi();
+    connectMeetingSocket();
+  } catch (e) { showToast(e.message); setTimeout(() => location.href = "/meetings", 900); }
+}
+window.addEventListener("beforeunload", () => { disconnectMeetingSocket(); stopCamera(); });

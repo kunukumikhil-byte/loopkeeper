@@ -10,7 +10,7 @@
     <a class="button-link secondary-link" href="/meetings">← All Meetings</a>
   </div>
 
-  <section class="panel meeting-stage">
+  <section class="panel meeting-stage" id="meetingStage">
     <div class="stage-toolbar">
       <div><strong id="participantCount">1 participant</strong><span class="muted"> · Mesh video room</span></div>
       <div id="participantNames" class="muted"></div>
@@ -26,10 +26,10 @@
       <button id="cameraButton" onclick="startCamera()">📹 Start Camera</button>
       <button class="secondary" onclick="stopCamera()">⏹ Stop Camera</button>
       <button id="micButton" class="secondary" onclick="toggleMeetingMicrophone()">🎙 Mute</button>
-      <button id="screenShareButton" class="secondary" onclick="toggleScreenShare()">🖥️ Share Screen</button>
+      <button id="screenShareButton" class="secondary" onclick="toggleScreenShare()">🖥️ Share Screen</button><button id="enableAudioButton" class="secondary hidden" onclick="enableRemoteAudio()">🔊 Enable Remote Audio</button><button class="secondary" onclick="toggleMeetingFullscreen()">⛶ Full Screen</button>
       <button id="leaveMeetingButton" class="leave-button" onclick="leaveMeeting()">🚪 Leave Meeting</button>
     </div>
-    <p class="muted small-note">Each participant must open this meeting using the same meeting code and allow camera/microphone access. Their video appears automatically.</p>
+    <p class="muted small-note">If remote sound is blocked by the browser, click <strong>Enable Remote Audio</strong>. Each participant must open this meeting using the same meeting code and allow camera/microphone access. Their video appears automatically.</p>
   </section>
 
   <section class="panel"><h2>Live Voice Transcript</h2><p class="muted">Speak naturally. Review the transcript before creating tasks.</p><div class="room-controls"><button id="voiceButton" onclick="toggleVoiceRecognition()">🎤 Start Listening</button><button class="secondary" onclick="saveTranscript()">Save Transcript</button><button onclick="analyzeTranscript()">🤖 Detect Task Suggestions</button></div><p id="voiceStatus" class="muted"></p><textarea id="transcript" placeholder="Live speech appears here. You can also edit or paste text."></textarea></section>
