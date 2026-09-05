@@ -168,6 +168,8 @@ async def meeting_signaling(websocket: WebSocket, meeting_id: int):
             payload = await websocket.receive_json()
             if payload.get("type") in {"offer", "answer", "ice"}:
                 await signal_manager.relay(room_id, client_id, payload)
+            elif payload.get("type") == "leave":
+                break
     except WebSocketDisconnect:
         pass
     except Exception:

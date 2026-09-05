@@ -218,6 +218,8 @@ let meetingSocket = null;
 let meetingPeers = new Map();
 let meetingClientId = null;
 let localMediaStream = null;
+let screenStream = null;
+let screenSharing = false;
 let meetingMicMuted = false;
 const rtcConfig = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
 
@@ -225,14 +227,39 @@ function makeMeetingClientId() { return window.crypto?.randomUUID ? crypto.rando
 function socketUrl(path) { const scheme = location.protocol === "https:" ? "wss" : "ws"; return `${scheme}://${location.host}${path}`; }
 function updateParticipantUi() { const peers = Array.from(meetingPeers.values()).map(p => p.name).filter(Boolean); const total = 1 + peers.length; if ($("participantCount")) $("participantCount").textContent = `${total} participant${total === 1 ? "" : "s"}`; if ($("participantNames")) $("participantNames").textContent = peers.length ? `Connected: ${peers.join(", ")}` : "Waiting for others to join"; if ($("localName")) $("localName").textContent = currentUser?.name || "You"; }
 function setMeetingConnectionStatus(text) { if ($("meetingConnectionStatus")) $("meetingConnectionStatus").textContent = text; }
-function addLocalTracks(pc) { if (!localMediaStream) return; const ids = new Set(pc.getSenders().map(s => s.track?.id).filter(Boolean)); localMediaStream.getTracks().forEach(track => { if (!ids.has(track.id)) pc.addTrack(track, localMediaStream); }); }
-function ensureRemoteCard(peerId, name) { let card = $("remote-card-" + peerId); if (card) return card; const grid = $("videoGrid"); if (!grid) return null; card = document.createElement("div"); card.className = "video-card remote-card"; card.id = "remote-card-" + peerId; card.innerHTML = `<video id="remote-video-${peerId}" autoplay playsinline></video><div class="video-empty">Connecting video…</div><span>${escapeHtml(name || "Participant")}</span>`; grid.appendChild(card); return card; }
+function currentVideoTrack() {
+  return screenSharing ? (screenStream?.getVideoTracks?.()[0] || null) : (localMediaStream?.getVideoTracks?.()[0] || null);
+}
+function addLocalTracks(pc) {
+  const videoTrack = currentVideoTrack();
+  const audioTrack = localMediaStream?.getAudioTracks?.()[0] || null;
+  const senders = pc.getSenders();
+  const videoSender = senders.find(s => s.track?.kind === "video" || (!s.track && s.kind === "video"));
+  const audioSender = senders.find(s => s.track?.kind === "audio" || (!s.track && s.kind === "audio"));
+  if (videoTrack && !senders.some(s => s.track?.id === videoTrack.id)) {
+    if (videoSender) videoSender.replaceTrack(videoTrack);
+    else pc.addTrack(videoTrack, screenSharing ? screenStream : localMediaStream);
+  }
+  if (audioTrack && !senders.some(s => s.track?.id === audioTrack.id)) {
+    if (audioSender) audioSender.replaceTrack(audioTrack);
+    else pc.addTrack(audioTrack, localMediaStream);
+  }
+}
+function ensureRemoteCard(peerId, name) {
+  let card = $("remote-card-" + peerId);
+  if (card) { const label = card.querySelector(".video-name"); if (label && name) label.textContent = name; return card; }
+  const grid = $("videoGrid"); if (!grid) return null;
+  card = document.createElement("div"); card.className = "video-card remote-card"; card.id = "remote-card-" + peerId;
+  card.innerHTML = `<video id="remote-video-${peerId}" autoplay playsinline></video><div class="video-empty">Connecting video…</div><span class="video-name"></span>`;
+  card.querySelector(".video-name").textContent = name || "Participant";
+  grid.appendChild(card); return card;
+}
 function removeRemoteCard(peerId) { $("remote-card-" + peerId)?.remove(); }
 function iAmOfferer(peerId) { return String(meetingClientId) < String(peerId); }
 
 async function createPeer(peer) {
   if (!peer?.client_id || peer.client_id === meetingClientId) return null;
-  if (meetingPeers.has(peer.client_id)) { const state = meetingPeers.get(peer.client_id); if (peer.name) state.name = peer.name; return state.pc; }
+  if (meetingPeers.has(peer.client_id)) { const state = meetingPeers.get(peer.client_id); if (peer.name) { state.name = peer.name; ensureRemoteCard(peer.client_id, peer.name); } updateParticipantUi(); return state.pc; }
   const pc = new RTCPeerConnection(rtcConfig);
   const state = { pc, name: peer.name || "Participant", pendingCandidates: [], makingOffer: false, offerInFlight: false };
   meetingPeers.set(peer.client_id, state); ensureRemoteCard(peer.client_id, state.name); updateParticipantUi(); addLocalTracks(pc);
@@ -255,10 +282,72 @@ async function handleMeetingSignal(message) {
   if (message.type === "ice") { const pc = await createPeer({ client_id: message.from, name: meetingPeers.get(message.from)?.name || "Participant" }); const state = meetingPeers.get(message.from); if (!pc || !state) return; try { const candidate = new RTCIceCandidate(message.candidate); if (pc.remoteDescription) await pc.addIceCandidate(candidate); else state.pendingCandidates.push(candidate); } catch (e) { console.warn("ICE candidate failed", e); } }
 }
 function connectMeetingSocket() { if (!selectedMeeting || !currentUser || meetingSocket?.readyState === WebSocket.OPEN) return; meetingClientId = makeMeetingClientId(); setMeetingConnectionStatus("Connecting participants…"); meetingSocket = new WebSocket(socketUrl(`/ws/meeting/${selectedMeeting.id}`)); meetingSocket.onopen = () => meetingSocket.send(JSON.stringify({ type: "join", client_id: meetingClientId, name: currentUser.name || "Participant", user_id: currentUser.id })); meetingSocket.onmessage = event => { try { handleMeetingSignal(JSON.parse(event.data)); } catch (e) { console.warn(e); } }; meetingSocket.onerror = () => setMeetingConnectionStatus("Participant connection error. Check the server supports WebSockets."); meetingSocket.onclose = () => { if ($("meetingRoomPage")) setMeetingConnectionStatus("Disconnected from participant room"); }; }
-function disconnectMeetingSocket() { try { meetingSocket?.close(); } catch {} meetingSocket = null; meetingPeers.forEach(state => { try { state.pc.close(); } catch {} }); meetingPeers.clear(); }
-async function startCamera() { try { if (localMediaStream) return; localMediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true }); cameraStream = localMediaStream; const video = $("localVideo"); if (video) { video.srcObject = localMediaStream; $("localVideoCard")?.classList.add("has-video"); await video.play().catch(() => {}); } $("cameraButton") && ($("cameraButton").textContent = "📹 Camera On"); $("localVideoEmpty") && ($("localVideoEmpty").textContent = "Camera is off"); for (const peerId of meetingPeers.keys()) { const state = meetingPeers.get(peerId); addLocalTracks(state.pc); if (iAmOfferer(peerId)) await sendOffer(peerId); } showToast("Camera and microphone are on"); } catch (e) { showToast("Camera/microphone permission was denied or unavailable. Please allow access and try again."); } }
-function stopCamera() { if (localMediaStream) localMediaStream.getTracks().forEach(track => track.stop()); localMediaStream = null; cameraStream = null; if ($("localVideo")) $("localVideo").srcObject = null; $("localVideoCard")?.classList.remove("has-video"); $("cameraButton") && ($("cameraButton").textContent = "📹 Start Camera"); $("micButton") && ($("micButton").textContent = "🎙 Mute"); meetingMicMuted = false; }
+function disconnectMeetingSocket() { try { meetingSocket?.close(); } catch {} meetingSocket = null; meetingPeers.forEach(state => { try { state.pc.close(); } catch {} }); meetingPeers.clear(); updateParticipantUi(); }
+async function startCamera() {
+  try {
+    if (localMediaStream) return showToast("Camera is already on.");
+    localMediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    cameraStream = localMediaStream;
+    if (!screenSharing) { const video = $("localVideo"); if (video) { video.srcObject = localMediaStream; $("localVideoCard")?.classList.add("has-video"); await video.play().catch(() => {}); } }
+    $("cameraButton") && ($("cameraButton").textContent = "📹 Camera On");
+    $("localVideoEmpty") && ($("localVideoEmpty").textContent = "Camera is off");
+    for (const peerId of meetingPeers.keys()) { const state = meetingPeers.get(peerId); addLocalTracks(state.pc); if (iAmOfferer(peerId)) await sendOffer(peerId); }
+    showToast("Camera and microphone are on");
+  } catch (e) { showToast("Camera/microphone permission was denied or unavailable. Please allow access and try again."); }
+}
+function stopCamera() {
+  if (screenSharing) stopScreenShare();
+  if (localMediaStream) localMediaStream.getTracks().forEach(track => track.stop());
+  localMediaStream = null; cameraStream = null;
+  if ($("localVideo")) $("localVideo").srcObject = null;
+  $("localVideoCard")?.classList.remove("has-video");
+  $("cameraButton") && ($("cameraButton").textContent = "📹 Start Camera");
+  $("micButton") && ($("micButton").textContent = "🎙 Mute");
+  meetingMicMuted = false;
+}
 function toggleMeetingMicrophone() { if (!localMediaStream) return showToast("Start the camera first to enable the microphone."); const tracks = localMediaStream.getAudioTracks(); if (!tracks.length) return; meetingMicMuted = !meetingMicMuted; tracks.forEach(track => track.enabled = !meetingMicMuted); if ($("micButton")) $("micButton").textContent = meetingMicMuted ? "🔇 Unmute" : "🎙 Mute"; }
+async function toggleScreenShare() {
+  if (screenSharing) return stopScreenShare();
+  if (!navigator.mediaDevices?.getDisplayMedia) return showToast("Screen sharing is not supported by this browser.");
+  try {
+    screenStream = await navigator.mediaDevices.getDisplayMedia({ video: { cursor: "always" }, audio: false });
+    const screenTrack = screenStream.getVideoTracks()[0];
+    if (!screenTrack) throw new Error("No screen track was created.");
+    screenSharing = true;
+    screenTrack.onended = () => stopScreenShare();
+    const localVideo = $("localVideo");
+    if (localVideo) { localVideo.srcObject = new MediaStream([screenTrack, ...(localMediaStream?.getAudioTracks?.() || [])]); $("localVideoCard")?.classList.add("has-video"); await localVideo.play().catch(() => {}); }
+    for (const [peerId, state] of meetingPeers) {
+      const sender = state.pc.getSenders().find(s => s.track?.kind === "video");
+      if (sender) await sender.replaceTrack(screenTrack); else state.pc.addTrack(screenTrack, screenStream);
+      if (iAmOfferer(peerId)) await sendOffer(peerId);
+    }
+    $("screenShareButton") && ($("screenShareButton").textContent = "⏹ Stop Sharing");
+    showToast("You are sharing your screen");
+  } catch (e) { screenStream?.getTracks().forEach(t => t.stop()); screenStream = null; screenSharing = false; if (e?.name !== "NotAllowedError") showToast("Screen sharing could not start."); }
+}
+function stopScreenShare() {
+  if (!screenSharing && !screenStream) return;
+  const cameraTrack = localMediaStream?.getVideoTracks?.()[0] || null;
+  screenStream?.getTracks().forEach(track => track.stop()); screenStream = null; screenSharing = false;
+  const localVideo = $("localVideo");
+  if (localVideo) { localVideo.srcObject = localMediaStream || null; if (localMediaStream) $("localVideoCard")?.classList.add("has-video"); else $("localVideoCard")?.classList.remove("has-video"); localVideo.play().catch(() => {}); }
+  for (const [peerId, state] of meetingPeers) {
+    const sender = state.pc.getSenders().find(s => s.track?.kind === "video");
+    if (sender) sender.replaceTrack(cameraTrack);
+    else if (cameraTrack) state.pc.addTrack(cameraTrack, localMediaStream);
+    if (iAmOfferer(peerId)) sendOffer(peerId);
+  }
+  $("screenShareButton") && ($("screenShareButton").textContent = "🖥️ Share Screen");
+  showToast(cameraTrack ? "Screen sharing stopped. Camera restored." : "Screen sharing stopped.");
+}
+function leaveMeeting() {
+  if (!confirm("Leave this meeting?")) return;
+  try { if (meetingSocket?.readyState === WebSocket.OPEN) meetingSocket.send(JSON.stringify({ type: "leave" })); } catch {}
+  stopVoiceRecognition(); stopCamera(); disconnectMeetingSocket();
+  selectedMeeting = null;
+  location.href = "/meetings";
+}
 async function openMeetingPage() { const root = $("meetingRoomPage"); if (!root) return; const id = Number(root.dataset.meetingId || new URLSearchParams(location.search).get("meeting_id")); if (!id) { showToast("No meeting selected"); location.href = "/meetings"; return; } try { selectedMeeting = await api("/api/meetings/" + id, { headers: headers() }); $("roomTitle").textContent = selectedMeeting.title; $("roomCode").textContent = "Share this meeting code: " + selectedMeeting.code; $("transcript").value = selectedMeeting.notes || ""; $("assignedUser").innerHTML = selectedMeeting.participants.map(u => `<option value="${u.id}">${escapeHtml(u.name)}</option>`).join(""); updateParticipantUi(); connectMeetingSocket(); } catch (e) { showToast(e.message); setTimeout(() => location.href = "/meetings", 900); } }
 window.addEventListener("beforeunload", () => { disconnectMeetingSocket(); stopCamera(); });
 

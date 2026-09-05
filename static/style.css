@@ -167,3 +167,13 @@ button:hover { opacity: .92; }
 .meeting-controls { margin-top:14px; }
 .small-note { margin:4px 0 0; font-size:.9rem; }
 @media (min-width: 1200px) { .multi-video-grid .video-card { min-height: 260px; } }
+
+
+/* Meeting action controls */
+.meeting-controls { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+.meeting-controls button { min-height:44px; }
+.leave-button { background:#dc2626; color:#fff; border:1px solid #dc2626; }
+.leave-button:hover { background:#b91c1c; border-color:#b91c1c; }
+.video-name { position:relative; z-index:2; }
+#screenShareButton { border:1px solid #475569; }
+@media(max-width:700px){ .meeting-controls button { flex:1 1 calc(50% - 10px); } }
