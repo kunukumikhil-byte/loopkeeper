@@ -1,12 +1,15 @@
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import RedirectResponse
+from pathlib import Path
+
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from dotenv import load_dotenv
 
-from database import Base, engine, migrate_sqlite
+BASE_DIR = Path(__file__).resolve().parent
+load_dotenv(BASE_DIR / ".env")
 
-load_dotenv()
+from database import Base, engine, migrate_sqlite
 import models  # noqa: F401 - register tables
 from routers.auth import router as auth_router
 from routers.meetings import router as meetings_router
@@ -16,8 +19,15 @@ Base.metadata.create_all(bind=engine)
 migrate_sqlite()
 
 app = FastAPI(title="LoopKeeper", description="The Meeting Accountability Engine")
-app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
+STATIC_DIR = BASE_DIR / "static"
+TEMPLATES_DIR = BASE_DIR / "templates"
+UPLOADS_DIR = BASE_DIR / "uploads"
+STATIC_DIR.mkdir(parents=True, exist_ok=True)
+TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
+UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 app.include_router(auth_router)
 app.include_router(meetings_router)

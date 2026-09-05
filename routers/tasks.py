@@ -11,7 +11,11 @@ from database import get_db
 from models import Task, Meeting, MeetingParticipant, User
 
 router = APIRouter(prefix="/api/tasks", tags=["Tasks"])
-UPLOAD_DIR = Path(os.getenv("LOOPKEEPER_UPLOAD_DIR", "uploads"))
+BASE_DIR = Path(__file__).resolve().parent.parent
+_configured_upload_dir = os.getenv("LOOPKEEPER_UPLOAD_DIR", "uploads").strip()
+UPLOAD_DIR = Path(_configured_upload_dir)
+if not UPLOAD_DIR.is_absolute():
+    UPLOAD_DIR = BASE_DIR / UPLOAD_DIR
 MAX_UPLOAD_BYTES = int(os.getenv("LOOPKEEPER_MAX_UPLOAD_BYTES", str(25 * 1024 * 1024)))
 
 
@@ -36,10 +40,8 @@ def serialize_task(task):
         "approved_at": task.approved_at.isoformat() if task.approved_at else None,
         "meeting_id": task.meeting_id,
         "meeting_title": task.meeting.title if task.meeting else "",
-        "assigned_to": {"id": task.assigned_to.id, "name": task.assigned_to.name, "email": task.assigned_to.email},
-        "assigned_to_name": task.assigned_to.name,
-        "assigned_by": {"id": task.assigned_by.id, "name": task.assigned_by.name, "email": task.assigned_by.email},
-        "assigned_by_name": task.assigned_by.name,
+        "assigned_to": {"id": task.assigned_to.id, "name": task.assigned_to.name},
+        "assigned_by": {"id": task.assigned_by.id, "name": task.assigned_by.name},
         "created_at": task.created_at.isoformat(),
     }
 

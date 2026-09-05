@@ -152,7 +152,7 @@ def extract_tasks(
     ).all():
         person = db.get(User, row.user_id)
         if person:
-            people.append({"id": person.id, "name": person.name, "email": person.email})
+            people.append({"id": person.id, "name": person.name})
 
     candidates = extract_task_candidates(transcript, people)
     return {
@@ -240,7 +240,6 @@ def extract_task_candidates(transcript, people):
                     "title": title[:255],
                     "assigned_to_id": person["id"],
                     "assigned_to_name": name,
-                    "assigned_to_email": person.get("email", ""),
                     "deadline": deadline[:100],
                     "source": match.group(0)[:500]
                 })

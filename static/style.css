@@ -167,13 +167,3 @@ button:hover { opacity: .92; }
 .meeting-controls { margin-top:14px; }
 .small-note { margin:4px 0 0; font-size:.9rem; }
 @media (min-width: 1200px) { .multi-video-grid .video-card { min-height: 260px; } }
-
-
-/* Task progress */
-.task-progress { margin: 14px 0 8px; padding: 12px 14px; border: 1px solid rgba(255,255,255,.08); border-radius: 14px; background: rgba(255,255,255,.025); }
-.progress-head { display:flex; justify-content:space-between; align-items:center; font-size:13px; margin-bottom:8px; }
-.progress-track { height:8px; background:rgba(255,255,255,.09); border-radius:999px; overflow:hidden; }
-.progress-fill { height:100%; border-radius:999px; background:linear-gradient(90deg,#6d5dfc,#35d0ba); transition:width .35s ease; }
-.progress-steps { display:flex; justify-content:space-between; gap:8px; margin-top:8px; font-size:11px; color:#8e98ad; }
-.progress-steps span.done { color:#dce7ff; font-weight:700; }
-.progress-label { margin:6px 0 0; }

@@ -1,129 +1,49 @@
-# LoopKeeper — Fresh PythonAnywhere Deployment
+# LoopKeeper — PythonAnywhere Deployment
 
-This package is prepared for **FastAPI + WebSockets on PythonAnywhere ASGI**.
+This version is prepared for PythonAnywhere ASGI deployment. Paths are resolved from `main.py`, so the app does not depend on the web worker's current working directory.
 
-## 1. Push to GitHub
-
-From the extracted project folder on Windows:
-
-```powershell
-git init
-git branch -M main
-git remote remove origin 2>$null
-git remote add origin https://github.com/kunukumikhil-byte/loopkeeper.git
-git add .
-git commit -m "LoopKeeper PythonAnywhere ready release"
-git push origin main --force
-```
-
-Never commit `.env`, `loopkeeper.db`, `uploads/`, or a virtual environment.
-
-## 2. Fresh PythonAnywhere install
-
-Open a new Bash console:
-
+## 1. Clone
 ```bash
 cd ~
 rm -rf ~/loopkeeper
 rm -rf ~/loopkeeper_venv
-
 git clone https://github.com/kunukumikhil-byte/loopkeeper.git ~/loopkeeper
+```
 
+## 2. Python 3.11 environment
+```bash
 python3.11 -m venv ~/loopkeeper_venv
 source ~/loopkeeper_venv/bin/activate
-
 cd ~/loopkeeper
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
-
-python -c "from main import app; print('LOOPKEEPER BACKEND OK', app.version)"
+python -c "from main import app; print('LOOPKEEPER BACKEND OK')"
 ```
 
-## 3. Configure production environment
+## 3. Environment variables
+Create `~/loopkeeper/.env` and set your real Google OAuth values and a long random session secret if/when those features are enabled. Never commit `.env`.
 
+## 4. ASGI website
+Install the PythonAnywhere CLI in the virtual environment if needed:
 ```bash
-nano ~/loopkeeper/.env
+python -m pip install --upgrade pythonanywhere
 ```
 
-Use:
-
-```env
-ENVIRONMENT=production
-SESSION_SECRET=PUT_A_LONG_RANDOM_VALUE_HERE
-GOOGLE_CLIENT_ID=YOUR_GOOGLE_WEB_CLIENT_ID
-```
-
-Generate a secret with:
-
-```bash
-python -c "import secrets; print(secrets.token_urlsafe(48))"
-```
-
-Do not paste secrets into GitHub or chat.
-
-## 4. Google OAuth
-
-For the production domain:
-
-**Authorized JavaScript origin**
-
-```text
-https://mikhilkunuku1.pythonanywhere.com
-```
-
-**Authorized redirect URI**
-
-```text
-https://mikhilkunuku1.pythonanywhere.com/auth/google/callback
-```
-
-The Google client must be an OAuth **Web application** client.
-
-## 5. Create the ASGI website
-
-If an old website exists and you want a completely fresh configuration:
-
-```bash
-source ~/loopkeeper_venv/bin/activate
-pa website delete --domain mikhilkunuku1.pythonanywhere.com
-```
-
-Then create it:
-
+Create the ASGI website:
 ```bash
 pa website create --domain mikhilkunuku1.pythonanywhere.com --command '/home/mikhilkunuku1/loopkeeper_venv/bin/uvicorn --app-dir /home/mikhilkunuku1/loopkeeper --uds ${DOMAIN_SOCKET} main:app'
 ```
 
 Reload:
-
 ```bash
 pa website reload --domain mikhilkunuku1.pythonanywhere.com
 ```
 
-## 6. Test
+## 5. If the website already exists
+Use the PythonAnywhere web dashboard to reload/reconfigure it, or delete and recreate it with the command above.
 
-Open:
-
-```text
-https://mikhilkunuku1.pythonanywhere.com/health
-https://mikhilkunuku1.pythonanywhere.com/login
-https://mikhilkunuku1.pythonanywhere.com/meetings
-```
-
-For WebRTC, test with two different browsers/devices and two different accounts.
-
-## 7. Future updates
-
-After pushing a new version to GitHub:
-
-```bash
-cd ~/loopkeeper
-git pull origin main
-source ~/loopkeeper_venv/bin/activate
-python -m pip install -r requirements.txt
-pa website reload --domain mikhilkunuku1.pythonanywhere.com
-```
-
-### WebRTC note
-
-The meeting media is peer-to-peer WebRTC and the FastAPI WebSocket is only used for signaling. This is appropriate for a hackathon/demo and small rooms. Some networks may require a TURN server for reliable media connectivity.
+## 6. Notes
+- No AI/ML model is required by this project.
+- Do not run `train_model.py`; it is not part of this version.
+- SQLite and uploads are stored relative to the project directory, so the app works even when PythonAnywhere starts Uvicorn from a different working directory.
+- WebRTC media is browser-to-browser; the ASGI app provides signaling.
