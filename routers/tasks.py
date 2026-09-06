@@ -58,20 +58,58 @@ def serialize_task(task):
 
 
 def _parse_deadline(value: str):
-    raw = (value or "").strip()
+    """Parse common meeting-style deadlines into a UTC-naive datetime.
+
+    The UI and transcript extractor accept natural phrases such as "Friday",
+    "this Friday", "next Friday", "today", and "tomorrow".  Keeping this parser
+    in sync prevents those valid deadlines from silently remaining unparsed.
+    """
+    raw = re.sub(r"\s+", " ", (value or "").strip())
     if not raw:
         return None
+
     now = datetime.utcnow()
     low = raw.lower().strip()
+
     if low == "today":
         return now.replace(hour=23, minute=59, second=59, microsecond=0)
     if low == "tomorrow":
         return (now + timedelta(days=1)).replace(hour=23, minute=59, second=59, microsecond=0)
+    if low in {"day after tomorrow", "day-after-tomorrow"}:
+        return (now + timedelta(days=2)).replace(hour=23, minute=59, second=59, microsecond=0)
+
+    # Natural weekday forms: Friday, this Friday, next Friday.
+    weekday_match = re.fullmatch(
+        r"(?:(this|next)\s+)?(monday|tuesday|wednesday|thursday|friday|saturday|sunday)",
+        low,
+    )
+    if weekday_match:
+        modifier, weekday_name = weekday_match.groups()
+        weekday_index = {
+            "monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3,
+            "friday": 4, "saturday": 5, "sunday": 6,
+        }[weekday_name]
+        days_ahead = (weekday_index - now.weekday()) % 7
+        if modifier == "next":
+            # "next Friday" means the Friday in the following week.
+            days_ahead = days_ahead + 7 if days_ahead else 7
+        elif modifier is None and days_ahead == 0:
+            # A bare weekday spoken on that same weekday is treated as the next
+            # occurrence, rather than a deadline already in the past.
+            days_ahead = 7
+        return (now + timedelta(days=days_ahead)).replace(
+            hour=23, minute=59, second=59, microsecond=0
+        )
+
     try:
         return datetime.fromisoformat(raw.replace("Z", "+00:00")).replace(tzinfo=None)
     except Exception:
         pass
-    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%d-%m-%Y", "%d %B %Y", "%d %b %Y"):
+
+    for fmt in (
+        "%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%d-%m-%Y",
+        "%d %B %Y", "%d %b %Y", "%B %d %Y", "%b %d %Y",
+    ):
         try:
             return datetime.strptime(raw, fmt).replace(hour=23, minute=59, second=59)
         except Exception:

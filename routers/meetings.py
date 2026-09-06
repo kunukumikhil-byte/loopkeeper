@@ -254,96 +254,83 @@ def extract_tasks(
 
 
 def extract_task_candidates(transcript, people):
-    """Find task assignments in noisy browser speech-recognition transcripts.
+    """Extract reviewable task suggestions from natural meeting language.
 
-    Browser speech recognition often returns one long line without punctuation and can
-    repeat interim words. Therefore this detector does not require a sentence to start
-    with a person's name. It searches around every meeting participant's name and stops
-    when the next assignment starts.
+    This intentionally accepts imperfect speech-to-text grammar such as
+    "mikhil complete the ui and ux design by tomorrow".
     """
     if not transcript or not people:
         return []
 
     text = re.sub(r"\s+", " ", transcript).strip()
-    if not text:
-        return []
-
     action_words = (
         "complete|finish|prepare|create|build|send|review|update|fix|implement|"
         "design|write|make|test|deploy|submit|share|deliver|organize|analyze|"
-        "research|check|call|contact|plan|work on|do"
+        "research|check|call|contact|plan|work on|do|develop|refactor|document"
     )
-    modal = r"(?:will|should|need to|needs to|have to|has to|must|can|please)"
-
-    # Sort longest first so names such as "John Smith" are checked before "John".
-    people_sorted = sorted(people, key=lambda p: len(p["name"]), reverse=True)
+    modal = r"(?:will|should|need to|needs to|have to|has to|must|please|kindly)"
     found = []
 
-    for person in people_sorted:
-        name = person["name"].strip()
+    for person in sorted(people, key=lambda p: len((p.get("name") or "")), reverse=True):
+        name = (person.get("name") or "").strip()
         if not name:
             continue
-        name_pattern = re.escape(name)
+        np = re.escape(name)
 
-        # Examples supported:
-        # "Vivek will complete the UI design by Friday"
-        # "Vivek, you complete the UI design by Friday"
-        # "Please Vivek finish the dashboard before Monday"
+        # Supports: "Mikhil complete...", "Mikhil, complete...",
+        # "Mikhil should complete...", and "please Mikhil complete..."
         patterns = [
-            rf"\b{name_pattern}\b\s*,?\s*(?:you\s+)?{modal}\s+(?P<task>.+)",
-            rf"\b{name_pattern}\b\s*,?\s*(?:you\s+)?(?P<task>(?:{action_words})\b.+)",
-            rf"\bplease\s+{name_pattern}\b\s+(?:to\s+)?(?P<task>(?:{action_words})\b.+)",
-            rf"\b{name_pattern}\b\s+(?:is|will be)\s+responsible for\s+(?P<task>.+)",
+            rf"\b{np}\b\s*,?\s*(?:you\s+)?(?:{modal})\s+(?:to\s+)?(?P<task>(?:{action_words})\b.+?)(?=$|[.!?;\n])",
+            rf"\b{np}\b\s*,?\s*(?:you\s+)?(?P<task>(?:{action_words})\b.+?)(?=$|[.!?;\n])",
+            rf"\b(?:please|kindly)\s+{np}\b\s+(?:to\s+)?(?P<task>(?:{action_words})\b.+?)(?=$|[.!?;\n])",
         ]
-
         for pattern in patterns:
             for match in re.finditer(pattern, text, flags=re.I):
-                raw_task = match.group("task").strip()
-                if not raw_task:
-                    continue
-
-                # Stop at the next participant-name assignment. This is important when
-                # speech recognition returns the whole meeting as a single paragraph.
-                next_start = None
-                tail_start = match.start("task")
-                for other in people_sorted:
-                    other_name = other["name"].strip()
-                    if not other_name:
-                        continue
-                    boundary = rf"\b{re.escape(other_name)}\b\s*,?\s*(?:you\s+)?(?:{modal}|(?:{action_words})\b)"
-                    next_match = re.search(boundary, text[tail_start + 1:], flags=re.I)
-                    if next_match:
-                        pos = tail_start + 1 + next_match.start()
-                        if next_start is None or pos < next_start:
-                            next_start = pos
-                if next_start is not None:
-                    raw_task = text[tail_start:next_start].strip(" ,.;:-")
-
-                # Prefer the first sentence/clause when punctuation is available.
-                raw_task = re.split(r"[.!?;\n]", raw_task, maxsplit=1)[0].strip()
-                raw_task = re.sub(r"\s+", " ", raw_task)
-
-                title, deadline = split_deadline(raw_task)
+                raw = match.group("task").strip()
+                # Avoid swallowing a second assignment joined by common connectors.
+                raw = re.split(r"\s+(?:and\s+then|also\s+please|next)\s+", raw, maxsplit=1, flags=re.I)[0].strip()
+                title, deadline = split_deadline(raw)
                 title = clean_task_title(title)
-                if len(title) < 3:
-                    continue
+                if len(title) >= 3:
+                    found.append({
+                        "title": title[:255],
+                        "assigned_to_id": person["id"],
+                        "assigned_to_name": name,
+                        "deadline": deadline[:100],
+                        "source": match.group(0)[:500],
+                    })
 
-                found.append({
-                    "title": title[:255],
-                    "assigned_to_id": person["id"],
-                    "assigned_to_name": name,
-                    "deadline": deadline[:100],
-                    "source": match.group(0)[:500]
-                })
+    # Fallback for simple imperative speech where punctuation/spacing is poor.
+    if not found:
+        low = text.lower()
+        for person in people:
+            name = (person.get("name") or "").strip()
+            if not name:
+                continue
+            m = re.search(
+                rf"\b{re.escape(name)}\b\s+(?P<task>(?:{action_words})\b.+)",
+                text,
+                flags=re.I,
+            )
+            if m:
+                raw = re.split(r"[.!?;\n]", m.group("task"), maxsplit=1)[0].strip()
+                title, deadline = split_deadline(raw)
+                title = clean_task_title(title)
+                if len(title) >= 3:
+                    found.append({
+                        "title": title[:255],
+                        "assigned_to_id": person["id"],
+                        "assigned_to_name": name,
+                        "deadline": deadline[:100],
+                        "source": m.group(0)[:500],
+                    })
 
-    # Remove duplicates. SpeechRecognition may repeat a phrase many times.
-    result = []
-    seen = set()
+    result, seen = [], set()
     for item in found:
         key = (
             item["assigned_to_id"],
-            re.sub(r"[^a-z0-9]+", " ", item["title"].lower()).strip(),
-            item["deadline"].lower().strip()
+            _normalize(item["title"]),
+            _normalize(item["deadline"]),
         )
         if key not in seen:
             seen.add(key)
