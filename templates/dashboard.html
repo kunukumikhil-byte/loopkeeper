@@ -1,0 +1,5 @@
+{% extends "base.html" %}{% block content %}
+<section class="page-heading"><div><p class="eyebrow">OVERVIEW</p><h1>Dashboard</h1><p class="muted">Your work, meetings and approvals in one place.</p></div><a class="button-link" href="/meetings">+ New or Join Meeting</a></section>
+<section class="stats"><div class="stat"><span>Total Tasks</span><strong id="totalStat">0</strong></div><div class="stat"><span>Completed</span><strong id="completedStat">0</strong></div><div class="stat"><span>Pending</span><strong id="pendingStat">0</strong></div><div class="stat"><span>Waiting Approval</span><strong id="submittedStat">0</strong></div></section>
+<section class="quick-grid"><a class="quick-card" href="/meetings"><h2>🎥 Meetings</h2><p>Create a meeting or join with a code.</p></a><a class="quick-card" href="/my-tasks"><h2>📋 My Tasks</h2><p>Submit work assigned to you.</p></a><a class="quick-card" href="/assigned-tasks"><h2>✅ Approvals</h2><p>Review and approve submitted work.</p></a></section>
+{% endblock %}

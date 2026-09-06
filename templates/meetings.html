@@ -1,0 +1,5 @@
+{% extends "base.html" %}{% block content %}
+<section class="page-heading"><div><p class="eyebrow">COLLABORATION</p><h1>Meetings</h1><p class="muted">Create a private meeting or join an existing one using its code.</p></div></section>
+<section class="two-col"><div class="panel"><h2>Create Meeting</h2><input id="meetingTitle" placeholder="Meeting title"><textarea id="meetingNotes" placeholder="Optional meeting notes"></textarea><button onclick="createMeeting()">Create Meeting</button></div><div class="panel"><h2>Join Meeting</h2><input id="joinCode" placeholder="Enter 6-character meeting code"><button onclick="joinMeeting()">Join with Code</button></div></section>
+<section class="panel"><div class="section-title"><div><h2>My Meetings</h2><p class="muted">Open a meeting room to start voice capture and task assignment.</p></div><button class="secondary" onclick="loadMeetings()">Refresh</button></div><div id="meetingList"></div></section>
+{% endblock %}

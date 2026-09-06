@@ -1,0 +1,11 @@
+# LoopKeeper core dependencies (Python 3.11+)
+# Optional Google/Gemini packages are intentionally NOT required for startup.
+# The application has built-in local AI-style review and local email/password login.
+# Install optional integrations separately only when you configure them.
+fastapi==0.115.12
+uvicorn[standard]==0.34.0
+sqlalchemy==2.0.40
+jinja2==3.1.6
+python-multipart==0.0.20
+python-dotenv==1.0.1
+requests==2.32.3

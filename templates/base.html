@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ title }} | LoopKeeper</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/dashboard"><strong>LoopKeeper</strong><span>Meeting Accountability Engine</span></a>
+  <nav id="mainNav" class="nav-links">
+    <a href="/dashboard">Dashboard</a>
+    <a href="/meetings">Meetings</a>
+    <a href="/my-tasks">My Tasks</a>
+    <a href="/assigned-tasks">Assigned</a>
+  </nav>
+  <div id="userArea" class="user-area"></div>
+</header>
+<main>
+  {% block content %}{% endblock %}
+</main>
+<div id="toast"></div>
+<script src="/static/script.js"></script>
+</body>
+</html>
