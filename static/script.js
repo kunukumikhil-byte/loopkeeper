@@ -122,13 +122,18 @@ async function openMeetingPage() {
     selectedMeeting = await api("/api/meetings/" + id, { headers: headers() });
     $("roomTitle").textContent = selectedMeeting.title;
     $("roomCode").textContent = "Share this meeting code: " + selectedMeeting.code;
+<<<<<<< HEAD
     $("transcript").value = "";
+=======
+    $("transcript").value = selectedMeeting.notes || "";
+>>>>>>> acb05f8ecc9b70bcc7a7da286e973fe6dd75117c
     $("assignedUser").innerHTML = selectedMeeting.participants.map(u => `<option value="${u.id}">${escapeHtml(u.name)}</option>`).join("");
   } catch (e) { showToast(e.message); setTimeout(() => location.href = "/meetings", 900); }
 }
 
 async function startCamera() { try { stopCamera(); cameraStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true }); $("localVideo").srcObject = cameraStream; } catch { showToast("Camera/microphone permission was denied or unavailable."); } }
 function stopCamera() { if (cameraStream) { cameraStream.getTracks().forEach(t => t.stop()); cameraStream = null; } if ($("localVideo")) $("localVideo").srcObject = null; }
+<<<<<<< HEAD
 let transcriptEntries = new Map();
 let transcriptInterim = "";
 let transcriptSending = false;
@@ -181,6 +186,8 @@ function publishTranscriptText(text) {
     finally { transcriptSending = false; }
   }).catch(() => {});
 }
+=======
+>>>>>>> acb05f8ecc9b70bcc7a7da286e973fe6dd75117c
 function setupRecognition() {
   if (recognition) return true;
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -190,10 +197,17 @@ function setupRecognition() {
     let interim = "";
     for (let i = e.resultIndex; i < e.results.length; i++) {
       const text = e.results[i][0].transcript.trim(); if (!text) continue;
+<<<<<<< HEAD
       if (e.results[i].isFinal) publishTranscriptText(text);
       else interim += (interim ? " " : "") + text;
     }
     transcriptInterim = interim; renderTranscript();
+=======
+      if (e.results[i].isFinal) committedTranscript = (committedTranscript + " " + text).replace(/\s+/g, " ").trim();
+      else interim += (interim ? " " : "") + text;
+    }
+    $("transcript").value = (committedTranscript + (interim ? " " + interim : "")).trim();
+>>>>>>> acb05f8ecc9b70bcc7a7da286e973fe6dd75117c
   };
   recognition.onerror = e => { if (["aborted", "no-speech"].includes(e.error)) return; voiceListening = false; if ($("voiceButton")) $("voiceButton").textContent = "🎤 Start Listening"; if ($("voiceStatus")) $("voiceStatus").textContent = "Voice error: " + e.error + ". Check microphone permission."; };
   recognition.onend = () => { if (voiceListening) { try { recognition.start(); } catch {} } };
@@ -201,6 +215,7 @@ function setupRecognition() {
 }
 function toggleVoiceRecognition() {
   if (voiceListening) return stopVoiceRecognition(); if (!setupRecognition()) return;
+<<<<<<< HEAD
   transcriptInterim = ""; voiceListening = true; $("voiceButton").textContent = "⏹ Stop Listening"; $("voiceStatus").textContent = "Listening… your speech will be added to the shared meeting transcript.";
   try { recognition.start(); } catch { showToast("Voice recognition could not start. Please try again."); }
 }
@@ -251,6 +266,17 @@ function renderDetectedTasks(tasks, completion = null) {
     return;
   }
   if (!tasks.length) { list.innerHTML = "<p class='muted'>No new task assignment detected. If this was a completion statement, make sure the task is assigned to you and still Pending.</p>"; return; }
+=======
+  committedTranscript = ($("transcript").value || "").trim(); voiceListening = true; $("voiceButton").textContent = "⏹ Stop Listening"; $("voiceStatus").textContent = "Listening… speak naturally.";
+  try { recognition.start(); } catch { showToast("Voice recognition could not start. Please try again."); }
+}
+function stopVoiceRecognition() { voiceListening = false; if (recognition) try { recognition.stop(); } catch {} if ($("voiceButton")) $("voiceButton").textContent = "🎤 Start Listening"; if ($("voiceStatus")) $("voiceStatus").textContent = "Voice detection stopped."; if ($("transcript")) committedTranscript = $("transcript").value.trim(); }
+async function saveTranscript() { if (!selectedMeeting) return; try { await api(`/api/meetings/${selectedMeeting.id}/transcript?` + query({ transcript: $("transcript").value }), { method: "PUT", headers: headers() }); selectedMeeting.notes = $("transcript").value; showToast("Transcript saved"); } catch (e) { showToast(e.message); } }
+async function analyzeTranscript() { if (!selectedMeeting) return showToast("Open a meeting first"); if (!$("transcript").value.trim()) return showToast("Add some speech text first"); try { const d = await api(`/api/meetings/${selectedMeeting.id}/extract-tasks?` + query({ transcript: $("transcript").value }), { method: "POST", headers: headers() }); renderDetectedTasks(d.tasks); showToast(d.tasks.length ? "Task suggestions found. Review them before assigning." : "No clear assignments found. You can still assign manually."); } catch (e) { showToast(e.message); } }
+function renderDetectedTasks(tasks) {
+  const section = $("detectedTasks"), list = $("detectedTaskList"); section.classList.remove("hidden");
+  if (!tasks.length) { list.innerHTML = "<p class='muted'>No clear task assignments detected.</p>"; return; }
+>>>>>>> acb05f8ecc9b70bcc7a7da286e973fe6dd75117c
   const options = selectedMeeting.participants.map(u => `<option value="${u.id}">${escapeHtml(u.name)}</option>`).join("");
   list.innerHTML = tasks.map((t, i) => `<div class="task-card"><input id="ai-title-${i}" value="${escapeAttr(t.title)}"><select id="ai-user-${i}">${options}</select><input id="ai-deadline-${i}" value="${escapeAttr(t.deadline || "")}" placeholder="Due date"><p class="meta">Detected from: ${escapeHtml(t.source)}</p><button onclick="assignDetectedTask(${i})">Review & Assign</button></div>`).join("");
   tasks.forEach((t, i) => { const s = $("ai-user-" + i); if (s) s.value = String(t.assigned_to_id); });
@@ -264,12 +290,18 @@ function taskHtml(t, mine) {
   const person = mine ? `Assigned by: <strong>${escapeHtml(t.assigned_by.name)}</strong>` : `Assigned to: <strong>${escapeHtml(t.assigned_to.name)}</strong>`;
   const submittedFile = t.has_file ? `<p class="meta"><button class="secondary small-button" onclick="downloadSubmission(${t.id}, '${escapeAttr(t.submission_filename || 'submission')}')">📎 Download: ${escapeHtml(t.submission_filename || 'submission')}</button></p>` : "";
   const submit = mine && t.status !== "Completed" && t.status !== "Submitted" ? `<textarea id="submission-${t.id}" placeholder="Add a note, link, explanation, or result (optional if you attach a file)"></textarea><input id="submission-file-${t.id}" type="file"><p class="meta">You can submit any file type up to 25 MB.</p><button onclick="submitTask(${t.id})">Submit Work</button>` : "";
+<<<<<<< HEAD
   const aiBox = t.ai_review_status && t.ai_review_status !== "NotReviewed" ? `<div class="submission-box"><strong>🤖 AI review: ${escapeHtml(t.ai_review_status)}</strong><br>${escapeHtml(t.ai_review_reason || "No reason provided.")}${t.ai_confidence ? `<br><span class="meta">Confidence: ${escapeHtml(t.ai_confidence)}</span>` : ""}${t.ai_corrected_submission && t.ai_corrected_submission !== t.submission ? `<br><br><strong>AI-corrected wording:</strong><br>${escapeHtml(t.ai_corrected_submission)}` : ""}</div>` : "";
   const declaration = t.completion_statement ? `<div class="submission-box"><strong>🎙 Completion declared in meeting:</strong><br>${escapeHtml(t.completion_statement)}</div>` : "";
   const review = !mine && t.status === "Submitted" ? `<textarea id="review-${t.id}" placeholder="Optional approval note or rejection reason"></textarea><button class="success" onclick="approveTask(${t.id})">Final Review & Complete</button><button class="danger" onclick="rejectTask(${t.id})">Reject & Resubmit</button>` : "";
   const wait = mine && t.status === "Submitted" ? `<p class="meta"><strong>${t.ai_review_status === "PASS" ? "AI review passed the submission. Waiting for final boss review." : "Waiting for AI/boss review."}</strong></p>` : "";
   const deadlineInfo = t.deadline_status === "Overdue" ? `<p class="meta"><strong>⚠ Deadline passed — Overdue</strong></p>` : "";
   return `<div class="task-card"><div class="task-top"><div><h3>${escapeHtml(t.title)}</h3><p class="meta">${person}</p><p class="meta">Meeting: ${escapeHtml(t.meeting_title)}</p><p class="meta">Due date: <strong>${escapeHtml(t.deadline || "No deadline")}</strong></p>${deadlineInfo}</div><span class="badge status-${t.status}">${escapeHtml(t.status)}</span></div>${t.submission ? `<div class="submission-box"><strong>${mine ? "Your submission" : "Submitted work"}:</strong><br>${escapeHtml(t.submission)}</div>` : ""}${submittedFile}${declaration}${aiBox}${t.approval_note ? `<div class="submission-box"><strong>Review status:</strong><br>${escapeHtml(t.approval_note)}</div>` : ""}${submit}${review}${wait}${progressHtml(t.status)}${t.status === "Completed" ? `<p><strong>${t.approval_note?.startsWith("Automatically completed") ? "AI verified and completed ✓" : "Boss approved and completed ✓"}</strong></p>` : ""}</div>`;
+=======
+  const review = !mine && t.status === "Submitted" ? `<textarea id="review-${t.id}" placeholder="Optional approval note or rejection reason"></textarea><button class="success" onclick="approveTask(${t.id})">Approve & Complete</button><button class="danger" onclick="rejectTask(${t.id})">Reject & Resubmit</button>` : "";
+  const wait = mine && t.status === "Submitted" ? `<p class="meta"><strong>Waiting for approval from ${escapeHtml(t.assigned_by.name)}.</strong></p>` : "";
+  return `<div class="task-card"><div class="task-top"><div><h3>${escapeHtml(t.title)}</h3><p class="meta">${person}</p><p class="meta">Meeting: ${escapeHtml(t.meeting_title)}</p><p class="meta">Due date: <strong>${escapeHtml(t.deadline || "No deadline")}</strong></p></div><span class="badge status-${t.status}">${escapeHtml(t.status)}</span></div>${t.submission ? `<div class="submission-box"><strong>${mine ? "Your submission" : "Submitted work"}:</strong><br>${escapeHtml(t.submission)}</div>` : ""}${submittedFile}${t.approval_note ? `<div class="submission-box"><strong>Reviewer note:</strong><br>${escapeHtml(t.approval_note)}</div>` : ""}${submit}${review}${wait}${progressHtml(t.status)}${t.status === "Completed" ? "<p><strong>Approved and completed ✓</strong></p>" : ""}</div>`;
+>>>>>>> acb05f8ecc9b70bcc7a7da286e973fe6dd75117c
 }
 async function loadMyTasks() { const box = $("myTasks"); if (!box) return; try { const tasks = await api("/api/tasks/mine", { headers: headers() }); box.innerHTML = !tasks.length ? "<p class='muted'>No tasks assigned to you.</p>" : tasks.map(t => taskHtml(t, true)).join(""); } catch (e) { showToast(e.message); } }
 async function loadAssignedTasks() { const box = $("assignedTasks"); if (!box) return; try { const tasks = await api("/api/tasks/assigned", { headers: headers() }); box.innerHTML = !tasks.length ? "<p class='muted'>You have not assigned any tasks yet.</p>" : tasks.map(t => taskHtml(t, false)).join(""); } catch (e) { showToast(e.message); } }
@@ -281,7 +313,11 @@ async function submitTask(id) {
     form.append("submission", note);
     if (file) form.append("file", file);
     await api(`/api/tasks/${id}/submit`, { method: "POST", headers: headers(), body: form });
+<<<<<<< HEAD
     showToast("Work submitted. AI review finished; check the AI review result."); loadMyTasks();
+=======
+    showToast("Work submitted. Waiting for approval."); loadMyTasks();
+>>>>>>> acb05f8ecc9b70bcc7a7da286e973fe6dd75117c
   } catch (e) { showToast(e.message); }
 }
 async function downloadSubmission(id, name) {
@@ -494,12 +530,15 @@ function createPeer(peer) {
 }
 
 async function handleMeetingSignal(message) {
+<<<<<<< HEAD
   if (message.type === "transcript-entry" && message.entry) {
     transcriptEntries.set(String(message.entry.id), message.entry); renderTranscript(); return;
   }
   if (message.type === "task-completed" && message.completion) {
     showToast(message.completion.status === "Completed" ? `AI verified ${message.completion.title}; task marked Completed.` : `Completion linked across meetings: ${message.completion.title}. AI findings sent to the manager.`); return;
   }
+=======
+>>>>>>> acb05f8ecc9b70bcc7a7da286e973fe6dd75117c
   if (message.type === "peers") {
     for (const peer of message.peers || []) createPeer(peer);
     setMeetingConnectionStatus((message.peers || []).length ? "Connecting participant audio/video…" : "Connected. Waiting for participants…");
@@ -718,11 +757,18 @@ async function openMeetingPage() {
     selectedMeeting = await api("/api/meetings/" + id, { headers: headers() });
     $("roomTitle").textContent = selectedMeeting.title;
     $("roomCode").textContent = "Share this meeting code: " + selectedMeeting.code;
+<<<<<<< HEAD
     $("transcript").value = "";
     $("assignedUser").innerHTML = selectedMeeting.participants.map(u => `<option value="${u.id}">${escapeHtml(u.name)}</option>`).join("");
     updateParticipantUi();
     connectMeetingSocket();
     loadSharedTranscript();
+=======
+    $("transcript").value = selectedMeeting.notes || "";
+    $("assignedUser").innerHTML = selectedMeeting.participants.map(u => `<option value="${u.id}">${escapeHtml(u.name)}</option>`).join("");
+    updateParticipantUi();
+    connectMeetingSocket();
+>>>>>>> acb05f8ecc9b70bcc7a7da286e973fe6dd75117c
   } catch (e) { showToast(e.message); setTimeout(() => location.href = "/meetings", 900); }
 }
 window.addEventListener("beforeunload", () => { disconnectMeetingSocket(); stopCamera(); });

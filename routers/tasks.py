@@ -1,9 +1,16 @@
+<<<<<<< HEAD
 from datetime import datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 import os
 import re
 from ai_service import verify_task_with_gemini
+=======
+from datetime import datetime
+from pathlib import Path
+from uuid import uuid4
+import os
+>>>>>>> acb05f8ecc9b70bcc7a7da286e973fe6dd75117c
 
 from fastapi import APIRouter, Depends, HTTPException, Header, UploadFile, File, Form
 from fastapi.responses import FileResponse
@@ -33,14 +40,18 @@ def serialize_task(task):
         "id": task.id,
         "title": task.title,
         "deadline": task.deadline,
+<<<<<<< HEAD
         "deadline_at": task.deadline_at.isoformat() if task.deadline_at else None,
         "deadline_status": task.deadline_status,
+=======
+>>>>>>> acb05f8ecc9b70bcc7a7da286e973fe6dd75117c
         "status": task.status,
         "submission": task.submission,
         "submission_filename": task.submission_filename,
         "has_file": bool(task.submission_stored_name),
         "submitted_at": task.submitted_at.isoformat() if task.submitted_at else None,
         "approval_note": task.approval_note,
+<<<<<<< HEAD
         "ai_review_status": task.ai_review_status,
         "ai_review_reason": task.ai_review_reason,
         "ai_corrected_submission": task.ai_corrected_submission,
@@ -48,6 +59,8 @@ def serialize_task(task):
         "ai_confidence": task.ai_confidence,
         "completion_declared_at": task.completion_declared_at.isoformat() if task.completion_declared_at else None,
         "completion_statement": task.completion_statement,
+=======
+>>>>>>> acb05f8ecc9b70bcc7a7da286e973fe6dd75117c
         "approved_at": task.approved_at.isoformat() if task.approved_at else None,
         "meeting_id": task.meeting_id,
         "meeting_title": task.meeting.title if task.meeting else "",
@@ -57,6 +70,7 @@ def serialize_task(task):
     }
 
 
+<<<<<<< HEAD
 def _parse_deadline(value: str):
     raw = (value or "").strip()
     if not raw:
@@ -114,6 +128,8 @@ def refresh_all_deadlines(db: Session):
         db.commit()
 
 
+=======
+>>>>>>> acb05f8ecc9b70bcc7a7da286e973fe6dd75117c
 @router.post("/")
 def create_task(title: str, assigned_to_id: int, deadline: str = "", meeting_id: int = 0,
                 user: User = Depends(current_user), db: Session = Depends(get_db)):
@@ -127,6 +143,7 @@ def create_task(title: str, assigned_to_id: int, deadline: str = "", meeting_id:
     receiver = db.query(MeetingParticipant).filter_by(meeting_id=meeting_id, user_id=assigned_to_id).first()
     if not giver or not receiver:
         raise HTTPException(status_code=400, detail="Both users must be participants in this meeting")
+<<<<<<< HEAD
     normalized_title = " ".join(title.lower().split())
     normalized_deadline = " ".join((deadline or "").lower().split())
     # Prevent accidental duplicate creation from repeated transcript detection/clicks.
@@ -143,25 +160,40 @@ def create_task(title: str, assigned_to_id: int, deadline: str = "", meeting_id:
                 deadline=(deadline or "").strip()[:100], deadline_at=_parse_deadline(deadline), deadline_status="OnTrack", meeting_id=meeting_id, status="Pending")
     db.add(task); db.commit(); db.refresh(task)
     return {"message": "Task assigned successfully", "task": serialize_task(task), "duplicate": False}
+=======
+    task = Task(title=title[:255], assigned_to_id=assigned_to_id, assigned_by_id=user.id,
+                deadline=(deadline or "").strip()[:100], meeting_id=meeting_id, status="Pending")
+    db.add(task); db.commit(); db.refresh(task)
+    return {"message": "Task assigned successfully", "task": serialize_task(task)}
+>>>>>>> acb05f8ecc9b70bcc7a7da286e973fe6dd75117c
 
 
 @router.get("/mine")
 def get_my_tasks(user: User = Depends(current_user), db: Session = Depends(get_db)):
+<<<<<<< HEAD
     refresh_all_deadlines(db)
+=======
+>>>>>>> acb05f8ecc9b70bcc7a7da286e973fe6dd75117c
     tasks = db.query(Task).filter(Task.assigned_to_id == user.id).order_by(Task.created_at.desc()).all()
     return [serialize_task(task) for task in tasks]
 
 
 @router.get("/assigned")
 def get_tasks_i_assigned(user: User = Depends(current_user), db: Session = Depends(get_db)):
+<<<<<<< HEAD
     refresh_all_deadlines(db)
+=======
+>>>>>>> acb05f8ecc9b70bcc7a7da286e973fe6dd75117c
     tasks = db.query(Task).filter(Task.assigned_by_id == user.id).order_by(Task.created_at.desc()).all()
     return [serialize_task(task) for task in tasks]
 
 
 @router.get("/stats")
 def get_stats(user: User = Depends(current_user), db: Session = Depends(get_db)):
+<<<<<<< HEAD
     refresh_all_deadlines(db)
+=======
+>>>>>>> acb05f8ecc9b70bcc7a7da286e973fe6dd75117c
     tasks = db.query(Task).filter(Task.assigned_to_id == user.id).all()
     return {
         "total": len(tasks),
@@ -206,13 +238,18 @@ async def submit_work(task_id: int, submission: str = Form(""), file: UploadFile
     if task.status == "Completed":
         raise HTTPException(status_code=400, detail="Completed tasks cannot be resubmitted")
     if not (submission or "").strip() and not (file and file.filename):
+<<<<<<< HEAD
         raise HTTPException(status_code=400, detail="Add a note describing the completed work or attach a work file")
+=======
+        raise HTTPException(status_code=400, detail="Add a note or attach a work file before submitting")
+>>>>>>> acb05f8ecc9b70bcc7a7da286e973fe6dd75117c
 
     saved = await _save_upload(file)
     if saved:
         if task.submission_stored_name:
             (UPLOAD_DIR / task.submission_stored_name).unlink(missing_ok=True)
         task.submission_filename, task.submission_stored_name, task.submission_content_type = saved
+<<<<<<< HEAD
     task.submission = (submission or "").strip() or task.submission
     task.submitted_at = datetime.utcnow()
     task.completion_declared_at = task.completion_declared_at or datetime.utcnow()
@@ -232,6 +269,14 @@ async def submit_work(task_id: int, submission: str = Form(""), file: UploadFile
     else:
         message = "AI could not verify everything automatically. The task was forwarded to the boss for review."
     return {"message": message, "task": serialize_task(task), "ai": result}
+=======
+    task.submission = (submission or "").strip() or None
+    task.submitted_at = datetime.utcnow()
+    task.status = "Submitted"
+    task.approval_note = None
+    db.commit(); db.refresh(task)
+    return {"message": "Work submitted. Waiting for approval.", "task": serialize_task(task)}
+>>>>>>> acb05f8ecc9b70bcc7a7da286e973fe6dd75117c
 
 
 @router.get("/{task_id}/download")
@@ -259,9 +304,13 @@ def approve_task(task_id: int, note: str = "", user: User = Depends(current_user
         raise HTTPException(status_code=403, detail="Only the task giver can approve this task")
     if task.status != "Submitted":
         raise HTTPException(status_code=400, detail="Only submitted tasks can be approved")
+<<<<<<< HEAD
     if task.ai_review_status == "REJECT":
         raise HTTPException(status_code=400, detail="AI rejected this submission; the worker must correct and resubmit it")
     task.status = "Completed"; task.deadline_status = "Completed"; task.approval_note = (note or "").strip() or "Approved"; task.approved_at = datetime.utcnow()
+=======
+    task.status = "Completed"; task.approval_note = (note or "").strip() or "Approved"; task.approved_at = datetime.utcnow()
+>>>>>>> acb05f8ecc9b70bcc7a7da286e973fe6dd75117c
     db.commit(); db.refresh(task)
     return {"message": "Task approved and completed", "task": serialize_task(task)}
 
@@ -275,6 +324,10 @@ def reject_task(task_id: int, reason: str = "", user: User = Depends(current_use
         raise HTTPException(status_code=403, detail="Only the task giver can reject this task")
     if task.status != "Submitted":
         raise HTTPException(status_code=400, detail="Only submitted tasks can be rejected")
+<<<<<<< HEAD
     task.status = "Pending"; task.ai_review_status = "NotReviewed"; task.ai_review_reason = None; task.ai_corrected_submission = None; task.ai_reviewed_at = None; task.ai_confidence = None; task.approval_note = (reason or "").strip() or "Please improve and submit again."; task.approved_at = None
+=======
+    task.status = "Pending"; task.approval_note = (reason or "").strip() or "Please improve and submit again."; task.approved_at = None
+>>>>>>> acb05f8ecc9b70bcc7a7da286e973fe6dd75117c
     db.commit(); db.refresh(task)
     return {"message": "Task rejected and returned for resubmission", "task": serialize_task(task)}

@@ -54,8 +54,11 @@ class Task(Base):
     assigned_to_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     assigned_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     deadline = Column(String(100), nullable=True)
+<<<<<<< HEAD
     deadline_at = Column(DateTime, nullable=True, index=True)
     deadline_status = Column(String(50), default="OnTrack", nullable=False)
+=======
+>>>>>>> acb05f8ecc9b70bcc7a7da286e973fe6dd75117c
     # Pending -> Submitted -> Completed, or Rejected -> Pending for resubmission.
     status = Column(String(50), default="Pending", nullable=False)
     submission = Column(Text, nullable=True)
@@ -64,6 +67,7 @@ class Task(Base):
     submission_content_type = Column(String(255), nullable=True)
     submitted_at = Column(DateTime, nullable=True)
     approval_note = Column(Text, nullable=True)
+<<<<<<< HEAD
     ai_review_status = Column(String(50), default="NotReviewed", nullable=False)
     ai_review_reason = Column(Text, nullable=True)
     ai_corrected_submission = Column(Text, nullable=True)
@@ -71,6 +75,8 @@ class Task(Base):
     ai_confidence = Column(String(20), nullable=True)
     completion_declared_at = Column(DateTime, nullable=True)
     completion_statement = Column(Text, nullable=True)
+=======
+>>>>>>> acb05f8ecc9b70bcc7a7da286e973fe6dd75117c
     approved_at = Column(DateTime, nullable=True)
     meeting_id = Column(Integer, ForeignKey("meetings.id"), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -78,6 +84,7 @@ class Task(Base):
     meeting = relationship("Meeting", back_populates="tasks")
     assigned_to = relationship("User", foreign_keys=[assigned_to_id], back_populates="assigned_tasks")
     assigned_by = relationship("User", foreign_keys=[assigned_by_id], back_populates="given_tasks")
+<<<<<<< HEAD
 
 
 class MeetingTranscript(Base):
@@ -92,3 +99,5 @@ class MeetingTranscript(Base):
 
     meeting = relationship("Meeting")
     user = relationship("User")
+=======
+>>>>>>> acb05f8ecc9b70bcc7a7da286e973fe6dd75117c

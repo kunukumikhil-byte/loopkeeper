@@ -168,6 +168,7 @@ async def meeting_signaling(websocket: WebSocket, meeting_id: int):
             payload = await websocket.receive_json()
             if payload.get("type") in {"offer", "answer", "ice"}:
                 await signal_manager.relay(room_id, client_id, payload)
+<<<<<<< HEAD
             elif payload.get("type") == "transcript-entry":
                 # Transcript entries are persisted through the REST API; the socket
                 # only broadcasts the already-created entry to all live participants.
@@ -188,6 +189,8 @@ async def meeting_signaling(websocket: WebSocket, meeting_id: int):
                         await data["websocket"].send_json(message)
                     except Exception:
                         pass
+=======
+>>>>>>> acb05f8ecc9b70bcc7a7da286e973fe6dd75117c
             elif payload.get("type") == "leave":
                 break
     except WebSocketDisconnect:
