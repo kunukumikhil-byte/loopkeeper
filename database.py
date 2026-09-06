@@ -34,7 +34,6 @@ def migrate_sqlite():
                 "submission_filename": "VARCHAR(255)",
                 "submission_stored_name": "VARCHAR(255)",
                 "submission_content_type": "VARCHAR(255)",
-<<<<<<< HEAD
                 "deadline_at": "DATETIME",
                 "deadline_status": "VARCHAR(50) DEFAULT 'OnTrack'",
                 "ai_review_status": "VARCHAR(50) DEFAULT 'NotReviewed'",
@@ -44,8 +43,6 @@ def migrate_sqlite():
                 "ai_confidence": "VARCHAR(20)",
                 "completion_declared_at": "DATETIME",
                 "completion_statement": "TEXT",
-=======
->>>>>>> acb05f8ecc9b70bcc7a7da286e973fe6dd75117c
             }
             for name, sql_type in additions.items():
                 if name not in task_columns:
