@@ -1,7 +1,6 @@
 import random
 import re
 import string
-<<<<<<< HEAD
 import os
 import smtplib
 from email.message import EmailMessage
@@ -14,26 +13,11 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import Meeting, MeetingParticipant, MeetingTranscript, Task, User
 from ai_service import verify_task_with_gemini
-=======
-
-from fastapi import APIRouter, Depends, HTTPException, Header
-from sqlalchemy.orm import Session
-
-from database import get_db
-from models import Meeting, MeetingParticipant, User
->>>>>>> acb05f8ecc9b70bcc7a7da286e973fe6dd75117c
 
 router = APIRouter(prefix="/api/meetings", tags=["Meetings"])
 
 
-<<<<<<< HEAD
 def current_user(x_user_id: int = Header(...), db: Session = Depends(get_db)):
-=======
-def current_user(
-    x_user_id: int = Header(...),
-    db: Session = Depends(get_db)
-):
->>>>>>> acb05f8ecc9b70bcc7a7da286e973fe6dd75117c
     user = db.get(User, x_user_id)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid user")
@@ -48,19 +32,11 @@ def make_code(db: Session):
 
 
 def _require_participant(meeting_id: int, user_id: int, db: Session):
-<<<<<<< HEAD
     participant = db.query(MeetingParticipant).filter_by(meeting_id=meeting_id, user_id=user_id).first()
-=======
-    participant = db.query(MeetingParticipant).filter(
-        MeetingParticipant.meeting_id == meeting_id,
-        MeetingParticipant.user_id == user_id
-    ).first()
->>>>>>> acb05f8ecc9b70bcc7a7da286e973fe6dd75117c
     if not participant:
         raise HTTPException(status_code=403, detail="Join this meeting first")
 
 
-<<<<<<< HEAD
 def _normalize(text: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9 ]+", " ", (text or "").lower())).strip()
 
@@ -154,73 +130,21 @@ def create_meeting(title: str, notes: str = "", user: User = Depends(current_use
     meeting = Meeting(title=title[:255], notes=(notes or "").strip(), code=make_code(db), creator_id=user.id)
     db.add(meeting); db.commit(); db.refresh(meeting)
     db.add(MeetingParticipant(meeting_id=meeting.id, user_id=user.id)); db.commit()
-=======
-@router.post("/")
-def create_meeting(
-    title: str,
-    notes: str = "",
-    user: User = Depends(current_user),
-    db: Session = Depends(get_db)
-):
-    title = (title or "").strip()
-    if not title:
-        raise HTTPException(status_code=400, detail="Meeting title is required")
-
-    meeting = Meeting(
-        title=title,
-        notes=(notes or "").strip(),
-        code=make_code(db),
-        creator_id=user.id
-    )
-    db.add(meeting)
-    db.commit()
-    db.refresh(meeting)
-
-    # The creator automatically joins the meeting.
-    db.add(MeetingParticipant(meeting_id=meeting.id, user_id=user.id))
-    db.commit()
-
->>>>>>> acb05f8ecc9b70bcc7a7da286e973fe6dd75117c
     return {"message": "Meeting created", "meeting": serialize_meeting(meeting, db)}
 
 
 @router.post("/join")
-<<<<<<< HEAD
 def join_meeting(code: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
     meeting = db.query(Meeting).filter(Meeting.code == (code or "").strip().upper()).first()
     if not meeting:
         raise HTTPException(status_code=404, detail="Meeting code not found")
     if not db.query(MeetingParticipant).filter_by(meeting_id=meeting.id, user_id=user.id).first():
         db.add(MeetingParticipant(meeting_id=meeting.id, user_id=user.id)); db.commit()
-=======
-def join_meeting(
-    code: str,
-    user: User = Depends(current_user),
-    db: Session = Depends(get_db)
-):
-    meeting = db.query(Meeting).filter(
-        Meeting.code == (code or "").strip().upper()
-    ).first()
-
-    if not meeting:
-        raise HTTPException(status_code=404, detail="Meeting code not found")
-
-    already_joined = db.query(MeetingParticipant).filter(
-        MeetingParticipant.meeting_id == meeting.id,
-        MeetingParticipant.user_id == user.id
-    ).first()
-
-    if not already_joined:
-        db.add(MeetingParticipant(meeting_id=meeting.id, user_id=user.id))
-        db.commit()
-
->>>>>>> acb05f8ecc9b70bcc7a7da286e973fe6dd75117c
     return {"message": "Joined meeting successfully", "meeting": serialize_meeting(meeting, db)}
 
 
 @router.get("/")
 def get_my_meetings(user: User = Depends(current_user), db: Session = Depends(get_db)):
-<<<<<<< HEAD
     ids = [r.meeting_id for r in db.query(MeetingParticipant).filter_by(user_id=user.id).all()]
     if not ids: return []
     return [serialize_meeting(m, db) for m in db.query(Meeting).filter(Meeting.id.in_(ids)).order_by(Meeting.created_at.desc()).all()]
@@ -281,46 +205,6 @@ def save_transcript(
     if payload and not transcript:
         transcript = str(payload.get("transcript") or "")
     meeting.notes = re.sub(r"\s+", " ", (transcript or "").strip())[:50000]
-=======
-    meeting_ids = [row.meeting_id for row in db.query(MeetingParticipant).filter(
-        MeetingParticipant.user_id == user.id
-    ).all()]
-
-    if not meeting_ids:
-        return []
-
-    meetings = db.query(Meeting).filter(Meeting.id.in_(meeting_ids)).order_by(
-        Meeting.created_at.desc()
-    ).all()
-    return [serialize_meeting(meeting, db) for meeting in meetings]
-
-
-@router.get("/{meeting_id}")
-def get_meeting(
-    meeting_id: int,
-    user: User = Depends(current_user),
-    db: Session = Depends(get_db)
-):
-    _require_participant(meeting_id, user.id, db)
-    meeting = db.get(Meeting, meeting_id)
-    if not meeting:
-        raise HTTPException(status_code=404, detail="Meeting not found")
-    return serialize_meeting(meeting, db)
-
-
-@router.put("/{meeting_id}/transcript")
-def save_transcript(
-    meeting_id: int,
-    transcript: str,
-    user: User = Depends(current_user),
-    db: Session = Depends(get_db)
-):
-    _require_participant(meeting_id, user.id, db)
-    meeting = db.get(Meeting, meeting_id)
-    if not meeting:
-        raise HTTPException(status_code=404, detail="Meeting not found")
-    meeting.notes = (transcript or "").strip()
->>>>>>> acb05f8ecc9b70bcc7a7da286e973fe6dd75117c
     db.commit()
     return {"message": "Transcript saved"}
 
@@ -328,7 +212,6 @@ def save_transcript(
 @router.post("/{meeting_id}/extract-tasks")
 def extract_tasks(
     meeting_id: int,
-<<<<<<< HEAD
     transcript: str = "",
     payload: dict | None = Body(default=None),
     user: User = Depends(current_user),
@@ -367,121 +250,21 @@ def extract_tasks(
             if completion else
             "Suggestions are editable. Review before assigning."
         ),
-=======
-    transcript: str,
-    user: User = Depends(current_user),
-    db: Session = Depends(get_db)
-):
-    _require_participant(meeting_id, user.id, db)
-    meeting = db.get(Meeting, meeting_id)
-    if not meeting:
-        raise HTTPException(status_code=404, detail="Meeting not found")
-
-    people = []
-    for row in db.query(MeetingParticipant).filter(
-        MeetingParticipant.meeting_id == meeting_id
-    ).all():
-        person = db.get(User, row.user_id)
-        if person:
-            people.append({"id": person.id, "name": person.name})
-
-    candidates = extract_task_candidates(transcript, people)
-    return {
-        "tasks": candidates,
-        "note": "Every suggestion is editable. Review the task, person and deadline before assigning it."
->>>>>>> acb05f8ecc9b70bcc7a7da286e973fe6dd75117c
     }
 
 
 def extract_task_candidates(transcript, people):
-<<<<<<< HEAD
-    """Extract reviewable task suggestions from natural meeting language.
-
-    This intentionally accepts imperfect speech-to-text grammar such as
-    "mikhil complete the ui and ux design by tomorrow".
-=======
     """Find task assignments in noisy browser speech-recognition transcripts.
 
     Browser speech recognition often returns one long line without punctuation and can
     repeat interim words. Therefore this detector does not require a sentence to start
     with a person's name. It searches around every meeting participant's name and stops
     when the next assignment starts.
->>>>>>> acb05f8ecc9b70bcc7a7da286e973fe6dd75117c
     """
     if not transcript or not people:
         return []
 
     text = re.sub(r"\s+", " ", transcript).strip()
-<<<<<<< HEAD
-    action_words = (
-        "complete|finish|prepare|create|build|send|review|update|fix|implement|"
-        "design|write|make|test|deploy|submit|share|deliver|organize|analyze|"
-        "research|check|call|contact|plan|work on|do|develop|refactor|document"
-    )
-    modal = r"(?:will|should|need to|needs to|have to|has to|must|please|kindly)"
-    found = []
-
-    for person in sorted(people, key=lambda p: len((p.get("name") or "")), reverse=True):
-        name = (person.get("name") or "").strip()
-        if not name:
-            continue
-        np = re.escape(name)
-
-        # Supports: "Mikhil complete...", "Mikhil, complete...",
-        # "Mikhil should complete...", and "please Mikhil complete..."
-        patterns = [
-            rf"\b{np}\b\s*,?\s*(?:you\s+)?(?:{modal})\s+(?:to\s+)?(?P<task>(?:{action_words})\b.+?)(?=$|[.!?;\n])",
-            rf"\b{np}\b\s*,?\s*(?:you\s+)?(?P<task>(?:{action_words})\b.+?)(?=$|[.!?;\n])",
-            rf"\b(?:please|kindly)\s+{np}\b\s+(?:to\s+)?(?P<task>(?:{action_words})\b.+?)(?=$|[.!?;\n])",
-        ]
-        for pattern in patterns:
-            for match in re.finditer(pattern, text, flags=re.I):
-                raw = match.group("task").strip()
-                # Avoid swallowing a second assignment joined by common connectors.
-                raw = re.split(r"\s+(?:and\s+then|also\s+please|next)\s+", raw, maxsplit=1, flags=re.I)[0].strip()
-                title, deadline = split_deadline(raw)
-                title = clean_task_title(title)
-                if len(title) >= 3:
-                    found.append({
-                        "title": title[:255],
-                        "assigned_to_id": person["id"],
-                        "assigned_to_name": name,
-                        "deadline": deadline[:100],
-                        "source": match.group(0)[:500],
-                    })
-
-    # Fallback for simple imperative speech where punctuation/spacing is poor.
-    if not found:
-        low = text.lower()
-        for person in people:
-            name = (person.get("name") or "").strip()
-            if not name:
-                continue
-            m = re.search(
-                rf"\b{re.escape(name)}\b\s+(?P<task>(?:{action_words})\b.+)",
-                text,
-                flags=re.I,
-            )
-            if m:
-                raw = re.split(r"[.!?;\n]", m.group("task"), maxsplit=1)[0].strip()
-                title, deadline = split_deadline(raw)
-                title = clean_task_title(title)
-                if len(title) >= 3:
-                    found.append({
-                        "title": title[:255],
-                        "assigned_to_id": person["id"],
-                        "assigned_to_name": name,
-                        "deadline": deadline[:100],
-                        "source": m.group(0)[:500],
-                    })
-
-    result, seen = [], set()
-    for item in found:
-        key = (
-            item["assigned_to_id"],
-            _normalize(item["title"]),
-            _normalize(item["deadline"]),
-=======
     if not text:
         return []
 
@@ -561,12 +344,10 @@ def extract_task_candidates(transcript, people):
             item["assigned_to_id"],
             re.sub(r"[^a-z0-9]+", " ", item["title"].lower()).strip(),
             item["deadline"].lower().strip()
->>>>>>> acb05f8ecc9b70bcc7a7da286e973fe6dd75117c
         )
         if key not in seen:
             seen.add(key)
             result.append(item)
-<<<<<<< HEAD
     return result[:20]
 
 
@@ -592,42 +373,11 @@ def split_deadline(task):
             deadline = match.group(1).strip()
             task = (task[:match.start()] + task[match.end():]).strip(" ,.;:-")
             break
-=======
-
-    return result
-
-
-def split_deadline(task):
-    """Separate common spoken deadline phrases from the task title."""
-    task = task.strip(" ,.;:-")
-    deadline = ""
-
-    # by Friday / before Monday / on 2026-09-10 / tomorrow / next week
-    match = re.search(
-        r"\b(by|before|on)\s+(today|tomorrow|tonight|"
-        r"(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|"
-        r"next\s+(?:week|month|monday|tuesday|wednesday|thursday|friday|saturday|sunday)|"
-        r"\d{4}-\d{1,2}-\d{1,2}|\d{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]+)\b",
-        task,
-        flags=re.I
-    )
-    if match:
-        deadline = match.group(2).strip()
-        task = task[:match.start()].strip(" ,.;:-")
-    else:
-        # "Vivek will do the task tomorrow" is also common in speech.
-        match = re.search(r"\b(today|tomorrow|tonight|next week|next month)\b", task, flags=re.I)
-        if match:
-            deadline = match.group(1).strip()
-            task = task[:match.start()].strip(" ,.;:-")
-
->>>>>>> acb05f8ecc9b70bcc7a7da286e973fe6dd75117c
     return task, deadline
 
 
 def clean_task_title(title):
     title = re.sub(r"^(?:to\s+)?", "", title.strip(), flags=re.I)
-<<<<<<< HEAD
     title = re.sub(r"^(?:the task is to|task is to)\s+", "", title, flags=re.I)
     title = re.sub(r"\s+", " ", title).strip(" ,.;:-")
     return title
@@ -817,32 +567,3 @@ def detect_and_complete_task(user, spoken_text, db):
         "message": message,
     }
 
-=======
-    # Remove common speech filler at the beginning.
-    title = re.sub(r"^(?:the task is to|task is to)\s+", "", title, flags=re.I)
-    return title.strip(" ,.;:-")
-
-
-def serialize_meeting(meeting, db):
-    participants = db.query(MeetingParticipant).filter(
-        MeetingParticipant.meeting_id == meeting.id
-    ).all()
-
-    users = []
-    for participant in participants:
-        user = db.get(User, participant.user_id)
-        if user:
-            users.append({"id": user.id, "name": user.name, "email": user.email})
-
-    creator = db.get(User, meeting.creator_id)
-    return {
-        "id": meeting.id,
-        "title": meeting.title,
-        "code": meeting.code,
-        "notes": meeting.notes or "",
-        "creator": creator.name if creator else "Unknown",
-        "creator_id": meeting.creator_id,
-        "participants": users,
-        "created_at": meeting.created_at.isoformat()
-    }
->>>>>>> acb05f8ecc9b70bcc7a7da286e973fe6dd75117c

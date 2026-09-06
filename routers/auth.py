@@ -92,15 +92,12 @@ def google_login(payload: GoogleCredentialIn, db: Session = Depends(get_db)):
     try:
         from google.oauth2 import id_token
         from google.auth.transport import requests as google_requests
-<<<<<<< HEAD
     except ImportError:
         raise HTTPException(
             status_code=503,
             detail="Google Sign-In support is optional and is not installed. Install google-auth only if you configure Google login.",
         )
     try:
-=======
->>>>>>> acb05f8ecc9b70bcc7a7da286e973fe6dd75117c
         info = id_token.verify_oauth2_token(
             credential,
             google_requests.Request(),
